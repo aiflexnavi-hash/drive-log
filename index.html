@@ -182,7 +182,7 @@ function startGps(){
   try{
     navigator.geolocation.watchPosition(p=>{
       S.pos={lat:+p.coords.latitude.toFixed(6),lng:+p.coords.longitude.toFixed(6),acc:Math.round(p.coords.accuracy),spd:p.coords.speed,at:Date.now()};
-      el.textContent="位置：OK（±"+S.pos.acc+"m）"; el.className="gps ok"; trackAdd(S.pos); render();
+      el.textContent="位置：OK（±"+S.pos.acc+"m）"; el.className="gps ok"; trackAdd(S.pos); autoLeave(S.pos); render();
     },e=>{ el.textContent= e.code===1 ? "位置：許可されていません" : "位置：取れません"; el.className="gps bad"; },
     {enableHighAccuracy:true,maximumAge:5000,timeout:20000});
   }catch(e){ el.textContent="位置：使えません"; el.className="gps bad"; }
@@ -202,6 +202,13 @@ function trackSave(rotate){ const b=trackBuf(); if(!b||!S.db) return; if(b.pts.l
     const id=b.shift+"-"+b.pts[0][0]; S.db.collection("tracks").doc(id).set({shift:b.shift,from:b.pts[0][0],to:b.pts[b.pts.length-1][0],pts:b.pts}).catch(()=>{}); }
   if(rotate){ TR.buf=b.pts.length?{shift:b.shift,pts:[b.pts[b.pts.length-1]]}:null; try{ localStorage.setItem("trkbuf",JSON.stringify(TR.buf)); }catch(e){} } }
 document.addEventListener("visibilitychange",()=>{ if(document.hidden) trackSave(false); });
+// 付け待ち・乗り場で、乗車を押さずに並んだ所から300m 以上離れたら「離脱」を自動で記録する（列が進むくらいでは反応しない）
+function startPlace(st){ const e=[...S.events].reverse().find(e=>e.type===st+"_start"); return e&&e.lat!=null?e:null; }
+function gpsFresh(){ return !!(S.pos&&Date.now()-S.pos.at<120000&&S.pos.acc<=100); }
+function autoLeave(p){ if(!S.shift||!p||p.acc>50||S.leaving) return; const st=currentState(); if(st!=="wait"&&st!=="stand") return;
+  const a=startPlace(st); if(!a) return;
+  if(Math.hypot((p.lat-a.lat)*111000,(p.lng-a.lng)*91000)<300||(p.spd!=null&&p.spd<3)) return;
+  S.leaving=true; record(st==="wait"?"wait_end":"stand_end",{src:"auto"}).finally(()=>{ S.leaving=false; }); }
 function moving(){ return !!(S.pos && S.pos.spd!=null && Date.now()-S.pos.at<15000 && S.pos.spd>2.8); }
 
 /* ---------- state ---------- */
@@ -231,6 +238,11 @@ const ONCE=["taxi_many","taxi_few","people_many","people_few"];
 async function record(type, extra={}){
   if(ONCE.includes(type)){ const last=[...S.events].reverse().find(e=>e.type===type); if(last&&Date.now()-last.at<60000){ toast("✓ もう記録してあります（"+TYPE[type]+"）"); return; } }
   if(!S.db){ showErr("保存先につながっていません。ページを開き直してください。"); return; }
+  // 自動の離脱のすぐ後に「乗車」を押したら、離脱を取り消して付け待ち・乗り場からの乗車にする
+  if(type==="pickup"){ const last=S.events[S.events.length-1];
+    if(last&&(last.type==="wait_end"||last.type==="stand_end")&&last.src==="auto"&&Date.now()-last.at<300000){
+      try{ await S.db.collection("events").doc(last.id).delete(); }catch(e){}
+      extra={...extra,kind:last.type==="wait_end"?"付け待ち":"乗り場"}; } }
   const p=S.pos && Date.now()-S.pos.at<120000 ? S.pos : null;
   const doc={ type, at:Date.now(), ind:"taxi", shift:S.shift?S.shift.id:null,
     lat:p?p.lat:null, lng:p?p.lng:null, acc:p?p.acc:null, ...extra };
@@ -241,7 +253,7 @@ async function record(type, extra={}){
       doc.shift=ref.id;
     }
     await S.db.collection("events").add(doc);
-    toast("✓ 記録しました："+(TYPE[type]||type));
+    toast("✓ 記録しました："+(TYPE[type]||type)+(extra.src==="auto"?"（自動）":""));
     if(type==="shift_end" && S.shift){ trackSave(true); await S.db.collection("shifts").doc(S.shift.id).update({end:doc.at}); N.pick=S.shift.id; setTab(true); }
     hideErr();
   }catch(e){ showErr("保存できませんでした（"+(e&&e.code||"不明")+"）。もう一度押してください。"); }
@@ -314,7 +326,7 @@ function btn(label, cls, fn){ const b=document.createElement("button"); b.type="
 function render(){
   const st=currentState(), lock=moving();
   const names={off:"未出庫",vacant:"空車",cruise:"流し",dispatch:"迎車",arrived:"迎車先で待ち",wait:"付け待ち",stand:"乗り場",hired:"実車"};
-  $("state").className="state s-"+st; $("stateText").textContent=names[st]+(st!=="off"&&S.shift&&S.shift.car?"・"+S.shift.car:"");
+  $("state").className="state s-"+st; $("stateText").textContent=(st==="vacant"&&moving()?"空車（走行中）":names[st])+(st!=="off"&&S.shift&&S.shift.car?"・"+S.shift.car:"");
   $("lock").hidden=!lock;
 
   const rides=S.events.filter(e=>e.type==="dropoff");
@@ -339,9 +351,8 @@ function render(){
         try{ await S.db.collection("shifts").doc(S.shift.id).update({car:v}); S.shift.car=v; toast("✓ 車種："+v); render(); }catch(e){ toast("保存できませんでした",false); } }); b.dataset.free="1"; ch.append(b); });
       g.append(ch); }
     if(st==="vacant"||st==="cruise"){ g.append(btn("乗車（手上げ）","hired",()=>record("pickup",{kind:"手上げ"})), btn("アプリ受注（迎車へ）","hired",()=>record("dispatch_accept")));
-      if(st==="vacant") g.append(btn("流し開始","cruise wide",()=>record("nagashi_start")));
       g.append(btn("付け待ち開始","wait",()=>record("wait_start")), btn("乗り場に並ぶ","wait",()=>record("stand_start"))); }
-    if(st==="stand"){ g.append(btn("乗車","hired",()=>record("pickup",{kind:"乗り場"})), btn("列を離れる","",()=>record("stand_end"))); }
+    if(st==="stand"){ g.append(btn("乗車","hired",()=>record("pickup",{kind:"乗り場"})), btn("列を離れる","",()=>record("stand_end"))); if(gpsFresh()&&startPlace("stand")) g.lastChild.remove(); }
     if(st==="stand"||st==="wait"){ const PT=st==="stand"?"stand_pos":"wait_pos", ST=st==="stand"?"stand_start":"wait_start";
       const sp=[...S.events].reverse().find(x=>x.type===PT||x.type===ST); const cur=sp&&sp.type===PT?sp.n:null;
       const ch=document.createElement("div"); ch.className="chips"; ch.style.gridColumn="1/-1";
@@ -357,7 +368,7 @@ function render(){
       const curN=cur&&cur!=="11+"?Number(cur):null;
       if(curN&&curN>1){ const dn=btn("1台進んだ → "+(curN-1)+"台目","wait wide",()=>record(PT,{n:String(curN-1)})); g.prepend(dn); }
       if(cur){ const now=document.createElement("div"); now.className="amount"; now.style.gridColumn="1/-1"; now.style.textAlign="center"; now.textContent="今 "+cur+" 台目"; g.prepend(now); } }
-    if(st==="wait"){ g.append(btn("乗車","hired",()=>record("pickup",{kind:"付け待ち"})), btn("付け待ち離脱","",()=>record("wait_end"))); }
+    if(st==="wait"){ g.append(btn("乗車","hired",()=>record("pickup",{kind:"付け待ち"})), btn("付け待ち離脱","",()=>record("wait_end"))); if(gpsFresh()&&startPlace("wait")) g.lastChild.remove(); }
     if(st==="dispatch"||st==="arrived"){
       const acc=[...S.events].reverse().find(x=>x.type==="dispatch_accept");
       const setApp=async a=>{ try{ await S.db.collection("events").doc(acc.id).update({app:a}); }catch(x){ showErr("記録できませんでした。"); } };
