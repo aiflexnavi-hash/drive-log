@@ -96,7 +96,7 @@ ol.log .del{min-height:44px;font-size:16px;padding:0 12px;border-radius:8px}
     <div class="stat"><span>経過</span><b id="stTime">–</b></div>
   </div>
 
-  <div class="lock" id="lock" hidden>走行中は押せません。停車してから押してください</div>
+  <div class="lock" id="lock" hidden>走行中です。文字入力（相談・メモ）は停車してから</div>
   <div id="main"></div>
   <p class="err" id="err" hidden></p>
 
@@ -119,7 +119,7 @@ ol.log .del{min-height:44px;font-size:16px;padding:0 12px;border-radius:8px}
     <button class="ghost" id="exportBtn" type="button">記録を書き出す（CSV）</button>
     <button class="ghost" id="memoBtn" type="button">メモを書く</button>
   </div>
-  <p class="note">押すたびに時刻と現在地が自動で付きます。電波が切れても記録はスマホに残り、つながったら保存先へ送ります。走行中（時速10km超）はボタンが止まります。</p>
+  <p class="note">押すたびに時刻と現在地が自動で付きます。電波が切れても記録はスマホに残り、つながったら保存先へ送ります。走行中（時速10km超）は相談とメモの文字入力だけ止まります。</p>
 </div>
 
 <script>
@@ -225,7 +225,6 @@ function toast(t,ok=true){ let el=$("toast"); if(!el){ el=document.createElement
   clearTimeout(el._t); el._t=setTimeout(()=>{ el.className=""; },1800); }
 const ONCE=["taxi_many","taxi_few","people_many","people_few"];
 function record(type, extra={}){
-  if(moving()){ render(); return; }
   if(ONCE.includes(type)){ const last=[...S.events].reverse().find(e=>e.type===type); if(last&&Date.now()-last.at<60000){ toast("✓ もう記録してあります（"+TYPE[type]+"）"); return; } }
   const p=S.pos && Date.now()-S.pos.at<120000 ? S.pos : null;
   const ev={ id:uid(), type, at:Date.now(), ind:"taxi", shift:S.shift?S.shift.id:null,
@@ -311,7 +310,6 @@ function render(){
     }
     m.append(g);
   }
-  m.querySelectorAll("button").forEach(b=>{ if(lock && !b.dataset.free) b.disabled=true; });
   $("chatIn").disabled=lock; $("chatSend").disabled=lock||C.busy;
   renderLog(); setSync();
 }
@@ -444,7 +442,7 @@ async function ask(){
 /* ---------- boot ---------- */
 $("setup").hidden=!!API;
 $("exportBtn").addEventListener("click",exportCsv);
-$("memoBtn").addEventListener("click",()=>{ if(!S.shift){ showErr("出庫してからメモを書けます。"); return; } S.sheet="memo"; render(); });
+$("memoBtn").addEventListener("click",()=>{ if(!S.shift){ showErr("出庫してからメモを書けます。"); return; } if(moving()){ render(); return; } S.sheet="memo"; render(); });
 $("chatSend").addEventListener("click",ask);
 $("speakBtn").textContent="答えを読み上げる："+(C.speak?"オン":"オフ");
 $("speakBtn").addEventListener("click",()=>{ C.speak=!C.speak; LS.set("speak",C.speak); $("speakBtn").textContent="答えを読み上げる："+(C.speak?"オン":"オフ"); if(!C.speak) try{speechSynthesis.cancel();}catch(e){} });
