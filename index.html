@@ -122,6 +122,7 @@ body:not(.after) #nippo, body:not(.after) #afterEmpty{display:none!important}
   <section class="sheet" id="nippo" hidden>
     <div class="sub">日報の読み込み（写真から記録と突き合わせ）</div>
     <p class="note" id="nipNote" style="font-size:18px">入庫後に、乗務員日報を撮ってください（2枚なら1枚ずつ続けて）。写真は保存しません。読み取った数字だけを残します。</p>
+    <details id="myStats" style="margin:6px 0 12px"><summary style="font-size:19px;min-height:44px;display:flex;align-items:center;cursor:pointer">自分の稼げる時間帯・曜日・乗車地</summary><div id="myStatsBody"></div></details>
     <details id="paySet" style="margin:6px 0 12px"><summary style="font-size:19px;min-height:44px;display:flex;align-items:center;cursor:pointer">給与の設定（歩合率・締め日・足切り）</summary><div id="paySetBody"></div></details>
     <div id="nipShift" class="chips"></div>
     <input type="file" id="nipFile" accept="image/*" multiple hidden>
@@ -450,6 +451,8 @@ async function nipLoad(){
   }catch(e){}
   if(!N.pick && N.shifts.length) N.pick=(N.shifts.find(x=>x.end)||N.shifts[0]).id;
   nipRender(); paySetRender(); nipShowSaved(N.pick);
+  if(!N.msHook){ N.msHook=true; $("myStats").addEventListener("toggle",()=>{ if($("myStats").open) myStatsRender(); }); }
+  if($("myStats").open) myStatsRender();
 }
 async function nipShowSaved(id){
   const out=$("nipOut"); out.replaceChildren(); if(!id||N.busy) return;
@@ -648,6 +651,60 @@ async function nipMonth(doc,box){ if(!box||!doc.date) return; const p=period(doc
 }
 
 
+/* ---------- 自分の記録だけで出す「稼げる時間帯・曜日・乗車地」 ---------- */
+async function myStatsRender(){
+  const box=$("myStatsBody"); if(!box||!S.db) return; box.replaceChildren();
+  const note=t=>{ const p=document.createElement("p"); p.className="note"; p.style.fontSize="16px"; p.textContent=t; return p; };
+  let reps=[], shifts=[], evs=[];
+  try{ reps=(await S.db.collection("reports").get()).docs.filter(d=>d.id!=="settings").map(d=>({id:d.id,...d.data()})); }catch(e){}
+  try{ shifts=(await S.db.collection("shifts").get()).docs.map(d=>({id:d.id,...d.data()})); }catch(e){}
+  try{ evs=(await S.db.collection("events").get()).docs.map(d=>d.data()); }catch(e){}
+  const toMs=(date,hm,after)=>{ const m=/^(\d{1,2}):(\d{2})/.exec(String(hm||"")); if(!m||!date) return null; let t=new Date(date+"T00:00:00").getTime()+(Number(m[1])*60+Number(m[2]))*60000; if(after!=null&&t<after) t+=86400000; return t; };
+  // 乗務ごとに「勤務時間帯」と「乗車（時刻・運賃・乗車地）」をそろえる。日報があればそちらを優先
+  const duty=[], rides=[], seen=new Set();
+  reps.forEach(r=>{ if(!r.date||!Array.isArray(r.rides)||!r.rides.length) return;
+    const st=toMs(r.date,r.start), en=st!=null?toMs(r.date,r.end,st):null;
+    if(st!=null&&en!=null&&en>st) duty.push({st,en,date:r.date});
+    let prev=st;
+    r.rides.forEach(x=>{ let t=toMs(r.date,x.on,prev!=null?prev-3*3600000:null); if(t==null||!(Number(x.fare)>0)) return; prev=t; rides.push({t,fare:Number(x.fare),from:x.from||null,date:r.date}); });
+    if(!r.id.startsWith("past-")) seen.add(r.id); });
+  shifts.forEach(sh=>{ if(seen.has(sh.id)||!sh.start||!sh.end) return;
+    const d=new Date(sh.start), date=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+    const my=evs.filter(e=>e.shift===sh.id).sort((a,b)=>a.at-b.at); let on=null;
+    const rs=[]; my.forEach(e=>{ if(e.type==="pickup") on=e; if(e.type==="dropoff"&&Number(e.amount)>0){ rs.push({t:on?on.at:e.at,fare:Number(e.amount),from:null,date}); on=null; } });
+    if(!rs.length) return; duty.push({st:sh.start,en:sh.end,date}); rides.push(...rs); });
+  if(!duty.length){ box.append(note("まだデータがありません。日報を読み込むか、記録した乗務が増えると出ます。")); return; }
+  box.append(note(duty.length+"乗務・"+rides.length+"乗車の記録から出しています（自分のデータだけ）。回数が少ない所は、たまたまの可能性があります。"));
+  const tbl=(head,rows)=>{ const t=document.createElement("table"); t.style.cssText="width:100%;border-collapse:collapse;font-size:17px;font-variant-numeric:tabular-nums;margin:6px 0 14px";
+    const tr=document.createElement("tr"); head.forEach(h=>{ const th=document.createElement("th"); th.textContent=h; th.style.cssText="text-align:right;color:var(--muted);font-weight:600;padding:4px 6px;border-bottom:1px solid var(--line)"; tr.append(th); }); tr.firstChild.style.textAlign="left"; t.append(tr);
+    rows.forEach(r=>{ const tr=document.createElement("tr"); if(r.hot) tr.style.cssText="background:rgba(63,182,127,.18)"; r.cells.forEach((c,i)=>{ const td=document.createElement("td"); td.textContent=c; td.style.cssText="padding:5px 6px;border-bottom:1px solid var(--line);text-align:"+(i?"right":"left"); tr.append(td); }); t.append(tr); });
+    return t; };
+  const sub=t=>{ const d=document.createElement("div"); d.style.cssText="font-size:18px;font-weight:700;margin-top:8px"; d.textContent=t; return d; };
+  // 時間帯：その時間に勤務していた時間の合計で割る
+  const hrs=new Array(24).fill(0), sal=new Array(24).fill(0), cnt=new Array(24).fill(0);
+  duty.forEach(d=>{ for(let t=d.st;t<d.en;){ const h=new Date(t).getHours(); const next=Math.min(d.en,new Date(t).setMinutes(60,0,0)); hrs[h]+=(next-t)/3600000; t=next; } });
+  rides.forEach(r=>{ const h=new Date(r.t).getHours(); sal[h]+=r.fare; cnt[h]++; });
+  const order=[...Array(24).keys()].sort((a,b)=>((a+12)%24)-((b+12)%24)).filter(h=>hrs[h]>=1);
+  const rate=h=>hrs[h]?sal[h]/hrs[h]:0;
+  const top=order.filter(h=>hrs[h]>=3).sort((a,b)=>rate(b)-rate(a)).slice(0,3);
+  box.append(sub("時間帯ごとの営収/h"));
+  box.append(tbl(["時間","勤務","乗車","営収/h"],order.map(h=>({hot:top.includes(h),cells:[h+"時台",hrs[h].toFixed(1)+"h",cnt[h]+"回",fmtYen(Math.round(rate(h)))+"円"]}))));
+  // 曜日（出庫日）
+  const wd="日月火水木金土", wS=new Array(7).fill(0), wH=new Array(7).fill(0), wN=new Array(7).fill(0);
+  duty.forEach(d=>{ const w=new Date(d.date+"T12:00:00").getDay(); wH[w]+=(d.en-d.st)/3600000; wN[w]++; });
+  rides.forEach(r=>{ wS[new Date(r.date+"T12:00:00").getDay()]+=r.fare; });
+  const wOrder=[1,2,3,4,5,6,0].filter(w=>wN[w]);
+  const wTop=wOrder.filter(w=>wN[w]>=2).sort((a,b)=>wS[b]/wH[b]-wS[a]/wH[a]).slice(0,2);
+  box.append(sub("出庫日の曜日ごと"));
+  box.append(tbl(["曜日","乗務","1乗務の営収","営収/h"],wOrder.map(w=>({hot:wTop.includes(w),cells:[wd[w]+"曜",wN[w]+"回",fmtYen(Math.round(wS[w]/wN[w]))+"円",fmtYen(Math.round(wS[w]/wH[w]))+"円"]}))));
+  // 乗車地（日報の地名。2回以上のところだけ）
+  const pl={}; rides.forEach(r=>{ if(!r.from) return; const k=String(r.from).trim(); (pl[k]=pl[k]||{n:0,s:0}); pl[k].n++; pl[k].s+=r.fare; });
+  const ps=Object.entries(pl).filter(([k,v])=>v.n>=2).sort((a,b)=>b[1].n-a[1].n||b[1].s-a[1].s).slice(0,10);
+  box.append(sub("よく乗せている乗車地（2回以上）"));
+  if(ps.length) box.append(tbl(["乗車地","回数","平均運賃"],ps.map(([k,v])=>({cells:[k,v.n+"回",fmtYen(Math.round(v.s/v.n))+"円"]}))));
+  else box.append(note("乗車地が分かるのは、乗車ごとの明細がある日報だけです。まだ2回以上の場所がありません。"));
+  box.append(note("緑の行は、その中で営収/h が高い所です（勤務3時間以上・2乗務以上の所から選んでいます）。"));
+}
 function paySetRender(){
   const b=$("paySetBody"); if(!b) return; b.replaceChildren();
   const f=(label,id,val,unit,help)=>{ const w=document.createElement("label"); w.style.cssText="display:grid;grid-template-columns:1fr 110px auto;gap:8px;align-items:center;font-size:19px;margin:8px 0";
