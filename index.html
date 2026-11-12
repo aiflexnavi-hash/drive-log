@@ -83,8 +83,13 @@ ol.log .del{min-height:44px;font-size:16px;padding:0 12px;border-radius:8px}
 .tabs button.on{background:var(--fg);color:var(--bg)}
 body.after .wrap>*:not(header):not(.tabs):not(#nippo):not(#afterEmpty){display:none!important}
 body:not(.after) #nippo, body:not(.after) #afterEmpty{display:none!important}
-body.hideyen #stats .yen b, body.hideyen #log .yen, body.hideyen .amount.yen{filter:blur(12px)}
+body.hideyen #stats .yen b, body.hideyen #log .yen, body.hideyen #goal .yen, body.hideyen .amount.yen{filter:blur(12px)}
 #stats{cursor:pointer;position:relative}
+#goal{background:var(--panel);border-radius:10px;padding:10px 12px;font-size:18px}
+#goal .bar{height:14px;background:var(--line);border-radius:7px;overflow:hidden;margin:8px 0 4px}
+#goal .bar i{display:block;height:100%;background:var(--vacant);border-radius:7px;transition:width .3s}
+#goal .row{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+#goal .chips button{font-size:20px;min-height:52px}
 .yentip{font-size:13px;color:var(--muted);text-align:right;margin-top:-8px}
 @media (prefers-reduced-motion:reduce){button:active{transform:none}}
 </style>
@@ -108,6 +113,7 @@ body.hideyen #stats .yen b, body.hideyen #log .yen, body.hideyen .amount.yen{fil
     <div class="stat"><span>経過</span><b id="stTime">–</b></div>
   </div>
 
+  <div id="goal" hidden></div>
   <div class="lock" id="lock" hidden>走行中です。文字入力（相談・メモ）は停車してから</div>
   <div id="main"></div>
   <p class="err" id="err" hidden></p>
@@ -224,6 +230,37 @@ setInterval(()=>{ const t=document.getElementById("waitTimer"); if(!t) return; c
 function showErr(t){ const el=$("err"); el.textContent=t; el.hidden=false; }
 function hideErr(){ $("err").hidden=true; }
 
+/* ---------- 今日の目標と進み具合 ---------- */
+const G={ target:null, hours:null, edit:false, loaded:false };
+async function goalLoad(){ if(!S.db) return; try{ const d=await S.db.collection("reports").doc("settings").get(); const x=d.exists?d.data():{}; G.target=x.target||null; G.hours=x.planHours||null; }catch(e){} G.loaded=true; render(); }
+async function goalSave(t,h){ G.target=t; if(h) G.hours=h; G.edit=false; render();
+  try{ const ref=S.db.collection("reports").doc("settings"); const d=await ref.get(); const x=d.exists?d.data():{}; await ref.set({...x,target:t,planHours:G.hours||x.planHours||null}); toast("✓ 目標："+fmtYen(t)+"円"); }catch(e){ toast("保存できませんでした",false); } }
+function goalRender(sales){
+  const box=$("goal"); if(!box) return;
+  if(!S.shift||!G.loaded){ box.hidden=true; return; }
+  box.hidden=false; box.replaceChildren();
+  if(!G.target||G.edit){
+    const t=document.createElement("div"); t.style.fontWeight="700"; t.textContent="今日の目標営収は？"; box.append(t);
+    const c=document.createElement("div"); c.className="chips";
+    [30000,35000,40000,45000,50000,60000].forEach(v=>{ const b=btn(fmtYen(v),"",()=>goalSave(v)); b.dataset.free="1"; if(G.target===v) b.setAttribute("aria-pressed","true"); c.append(b); });
+    const o=btn("その他","",()=>{ const v=Number(String(prompt("目標営収（円）","")||"").replace(/[^0-9]/g,"")); if(v>0) goalSave(v); }); o.dataset.free="1"; c.append(o);
+    const hl=document.createElement("div"); hl.className="sub"; hl.style.cssText="width:100%;margin-top:6px"; hl.textContent="乗務の長さ（必要な営収/h の計算に使う）"; c.append(hl);
+    [8,10,12,14,16].forEach(h=>{ const b=btn(h+"時間","",()=>{ G.hours=h; if(G.target) goalSave(G.target,h); else render(); }); b.dataset.free="1"; b.setAttribute("aria-pressed",String((G.hours||12)===h)); c.append(b); });
+    box.append(c); return; }
+  const pct=Math.min(100,Math.round(sales/G.target*100)), left=Math.max(0,G.target-sales);
+  const r1=document.createElement("div"); r1.className="row";
+  const a=document.createElement("span"); a.className="yen"; a.textContent="目標 "+fmtYen(G.target)+"円";
+  const b=document.createElement("span"); b.style.fontWeight="700"; b.textContent=pct+"%"; r1.append(a,b);
+  const bar=document.createElement("div"); bar.className="bar"; const i=document.createElement("i"); i.style.width=pct+"%"; bar.append(i);
+  const r2=document.createElement("div"); r2.className="row"; r2.style.fontSize="16px"; r2.style.color="var(--muted)";
+  const l=document.createElement("span"); l.className="yen";
+  if(left<=0){ l.textContent="達成！ +"+fmtYen(sales-G.target)+"円"; l.style.color="var(--vacant)"; }
+  else { const h=G.hours||12, remain=S.shift.start+h*3600000-Date.now(); l.textContent="あと "+fmtYen(left)+"円"+(remain>600000?"（残り"+hm(remain)+"・必要な営収/h "+fmtYen(Math.round(left/(remain/3600000)))+"円）":""); }
+  const ch=btn("変える","ghost",()=>{ G.edit=true; render(); }); ch.dataset.free="1"; ch.style.cssText="min-height:40px;font-size:15px;padding:0 10px";
+  r2.append(l,ch);
+  box.append(r1,bar,r2);
+}
+
 /* ---------- render ---------- */
 function btn(label, cls, fn){ const b=document.createElement("button"); b.type="button"; b.textContent=label; if(cls) b.className=cls; b.addEventListener("click",fn); return b; }
 function render(){
@@ -238,6 +275,7 @@ function render(){
   $("stSales").textContent=fmtYen(sales); $("stRides").textContent=rides.length;
   if(S.shift){ const el=Date.now()-S.shift.start; $("stTime").textContent=hm(el); $("stRate").textContent= el>600000 ? fmtYen(Math.round(sales/(el/3600000))) : "–"; }
   else { $("stTime").textContent="–"; $("stRate").textContent="–"; }
+  goalRender(sales);
 
   const m=$("main"); m.replaceChildren();
   if(S.sheet==="dropoff") m.append(dropSheet());
@@ -595,7 +633,7 @@ function nipShow(doc,evs){
     if(!N.rest){
       const q=document.createElement("p"); q.className="note"; q.style.fontSize="19px"; q.textContent="この会社の日報の「休」は、主に何ですか？（最初の1回だけ聞きます）"; w.append(q);
       const ch=document.createElement("div"); ch.className="chips";
-      [["wait","付け待ち"],["break","休憩・食事"],["both","両方まざる"]].forEach(([k,l])=>{ const b=btn(l,"",async()=>{ N.rest=k; try{ await S.db.collection("reports").doc("settings").set({rest:k,rate:N.rate||0.6,cutoff:N.cutoff||15,ashi:N.ashi||0,ashiRate:N.ashiRate||null}); }catch(e){} nipShow(doc,evs); }); b.dataset.free="1"; ch.append(b); });
+      [["wait","付け待ち"],["break","休憩・食事"],["both","両方まざる"]].forEach(([k,l])=>{ const b=btn(l,"",async()=>{ N.rest=k; try{ await S.db.collection("reports").doc("settings").set({rest:k,rate:N.rate||0.6,cutoff:N.cutoff||15,ashi:N.ashi||0,ashiRate:N.ashiRate||null,target:G.target||null,planHours:G.hours||null}); }catch(e){} nipShow(doc,evs); }); b.dataset.free="1"; ch.append(b); });
       w.append(ch);
     } else {
       const n=document.createElement("p"); n.className="note"; n.style.fontSize="17px"; n.textContent="「休」は "+({wait:"付け待ち",break:"休憩・食事",both:"付け待ちと食事がまざる"}[N.rest])+" として扱います。"; w.append(n);
@@ -722,7 +760,7 @@ function paySetRender(){
     const r=Number($("psRate").value), c=Number($("psCut").value), a=Number($("psAshi").value)||0, ar=Number($("psAshiRate").value)||null;
     if(!(r>0&&r<=100)||!(c>=1&&c<=31)){ toast("歩合率と締め日を確かめてください",false); return; }
     N.rate=r/100; N.cutoff=c; N.ashi=a; N.ashiRate=ar?ar/100:null;
-    try{ await S.db.collection("reports").doc("settings").set({rest:N.rest||null,rate:N.rate,cutoff:N.cutoff,ashi:N.ashi,ashiRate:N.ashiRate}); toast("✓ 設定を保存しました"); $("paySet").open=false; if(N.pick) nipShowSaved(N.pick); }catch(e){ toast("保存できませんでした",false); } });
+    try{ await S.db.collection("reports").doc("settings").set({rest:N.rest||null,rate:N.rate,cutoff:N.cutoff,ashi:N.ashi,ashiRate:N.ashiRate,target:G.target||null,planHours:G.hours||null}); toast("✓ 設定を保存しました"); $("paySet").open=false; if(N.pick) nipShowSaved(N.pick); }catch(e){ toast("保存できませんでした",false); } });
   sv.dataset.free="1"; sv.style.width="100%"; b.append(sv);
 }
 
@@ -762,7 +800,7 @@ function watchShift(){
     if(sm){ C.sample=sm; if(!window.NO_CHAT) $("chat").hidden=false; $("chatSend").addEventListener("click",ask); }
     if(tt){ C.tts=tt; try{ tt.onState(({state})=>{ if(state==="speaking"){ C.ttsStarted=true; C.ttsWorked=true; } }); }catch(e){} }
     if(tt||HAS_SS){ const sb=$("speakBtn"); sb.hidden=false; sb.addEventListener("click",()=>{ C.speak=!C.speak; sb.textContent="答えを読み上げる："+(C.speak?"オン":"オフ"); if(!C.speak){ try{C.tts&&C.tts.stop();}catch(e){} try{HAS_SS&&speechSynthesis.cancel();}catch(e){} } }); }
-    if(db){ S.db=db; clearTimeout(timer); watchShift(); }
+    if(db){ S.db=db; clearTimeout(timer); watchShift(); goalLoad(); }
     if(db){ const lim= sm ? await sm.limits().catch(()=>null) : null; N.limits=lim&&lim.images; $("nippo").hidden=false; $("afterEmpty").remove();
       if(N.limits){ $("nipFile").accept=(N.limits.mediaTypes||["image/*"]).join(","); $("nipBtn").dataset.free="1"; $("nipBtn").addEventListener("click",()=>$("nipFile").click()); $("nipFile").addEventListener("change",e=>nipRead(e.target.files)); $("camBtn").dataset.free="1"; $("camBtn").addEventListener("click",()=>$("nipCam").click()); $("nipCam").addEventListener("change",e=>{ const f=e.target.files&&e.target.files[0]; if(f){ N.cam.push(f); } e.target.value=""; camRender(); }); }
       else { $("camBtn").hidden=true; $("nipBtn").hidden=true; $("nipNote").textContent="日報の写真読み取りは、スマホの中だけで動く方式に作り替え中です（通信料・利用料がかからない方式）。今は記録からのまとめと、過去の日報が見られます。"; }
