@@ -57,12 +57,27 @@ window.NO_CHAT=true;   // 雑談の相談はアプリに入れない
       let diff=false;
       j.docs.forEach(s=>{ const k=s.c+"/"+s.i; seen.add(k); if(queue.includes(k)) return; const cur=store[k]; if(!cur||cur.u<s.u){ store[k]={c:s.c,i:s.i,u:s.u,d:s.x?null:s.d}; diff=true; } });
       save(); changed(); failed=false; oldServer=false; lastOk=Date.now();
-      if(diff) refreshAfter();
+      if(diff){ mergeShifts(); refreshAfter(); }
     }catch(e){ failed=true; if(e&&e.code==="bad_op") oldServer=true; }
     pill();
   }
   // 入庫後（日報）の画面を開いていれば、新しい記録で描き直す
   function refreshAfter(){ try{ if(document.body.classList.contains("after") && typeof nipLoad==="function") nipLoad(); }catch(e){} }
+  // 同じ時間帯の乗務が2つある（Claude 内アプリと位置が取れる版で別々に出庫した）ときは、早いほうに1つにまとめる
+  function mergeShifts(){
+    const sh=Object.values(store).filter(s=>s.c==="shifts"&&s.d&&s.d.start).sort((a,b)=>a.d.start-b.d.start);
+    let did=false;
+    sh.forEach(b=>{ if(!store["shifts/"+b.i]||!store["shifts/"+b.i].d) return;
+      const host=sh.find(a=>a!==b&&store["shifts/"+a.i]&&store["shifts/"+a.i].d&&a.d.start<=b.d.start&&b.d.start-a.d.start<20*3600000&&b.d.start<=(a.d.end||Infinity)&&!(a.d.start===b.d.start&&a.i>b.i));
+      if(!host) return;
+      let fares=[], lastAt=0;
+      Object.values(store).filter(s=>s.c==="events"&&s.d&&s.d.shift===b.i).forEach(s=>{ if(s.d.type==="shift_start"||s.d.type==="shift_end"){ write("events",s.i,null); return; } if(s.d.type==="dropoff") fares.push(Number(s.d.at)||0); lastAt=Math.max(lastAt,Number(s.d.at)||0); write("events",s.i,{...s.d,shift:host.i}); });
+      // 「位置が取れる版の分のまとめ」行は、その時間までの本物の記録が来たら消す
+      Object.values(store).filter(s=>s.c==="events"&&s.d&&s.d.shift===host.i&&String(s.i).startsWith("webversion-")).forEach(s=>{ if(fares.some(t=>t<=s.d.at+600000)) write("events",s.i,null); });
+      const hd={...host.d}; if(!hd.car&&b.d.car) hd.car=b.d.car; if(hd.end) hd.end=Math.max(hd.end,b.d.end||0,lastAt);   // まとめる先がまだ乗務中なら、そのまま乗務中
+      write("shifts",host.i,hd); write("shifts",b.i,null); did=true; });
+    return did;
+  }
   function pill(){
     const el=document.getElementById("sync"); if(!el) return;
     if(!API){ el.textContent="保存：未設定"; el.className="gps bad"; return; }
@@ -150,16 +165,9 @@ window.NO_CHAT=true;   // 雑談の相談はアプリに入れない
       let j; try{ j=JSON.parse(rd.result); }catch(e){ alert("ファイルを読めませんでした"); return; }
       const docs=Array.isArray(j.docs)?j.docs:[];
       let n=0;
-      // 0時過ぎに位置が取れる版で押した分（同じ時間帯の乗務）を、取り込む乗務にまとめる
-      const imported=docs.filter(x=>x.c==="shifts"&&x.d&&x.d.start);
-      const webShifts=Object.values(store).filter(s=>s.c==="shifts"&&s.d&&s.d.start&&!docs.some(x=>x.c==="shifts"&&x.i===s.i));
-      const moved=new Set();
-      webShifts.forEach(ws=>{ const host=imported.find(t=>ws.d.start>=t.d.start&&ws.d.start<=(t.d.end||Infinity)); if(!host) return;
-        Object.values(store).filter(s=>s.c==="events"&&s.d&&s.d.shift===ws.i).forEach(s=>{ if(s.d.type==="shift_start"||s.d.type==="shift_end"){ write("events",s.i,null); return; } write("events",s.i,{...s.d,shift:host.i}); });
-        write("shifts",ws.i,null); moved.add(host.i); });
-      docs.forEach(x=>{ if(!x||!x.c||!x.i) return; if(x.d&&x.d.src==="claude"&&String(x.i).startsWith("webversion-")&&moved.has(x.d.shift)) return;
+      docs.forEach(x=>{ if(!x||!x.c||!x.i) return;
         const k=x.c+"/"+x.i; if(store[k]&&store[k].d) return; write(x.c,x.i,x.d); n++; });
-      alert(n+"件 取り込みました"); refreshAfter();
+      mergeShifts(); alert(n+"件 取り込みました"); refreshAfter();
     };
     rd.readAsText(file);
   }
