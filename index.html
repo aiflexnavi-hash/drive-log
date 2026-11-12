@@ -241,6 +241,21 @@ const G={ target:null, hours:null, edit:false, loaded:false };
 async function goalLoad(){ if(!S.db) return; try{ const d=await S.db.collection("reports").doc("settings").get(); const x=d.exists?d.data():{}; G.target=x.target||null; G.hours=x.planHours||null; }catch(e){} G.loaded=true; render(); }
 async function goalSave(t,h){ G.target=t; if(h) G.hours=h; G.edit=false; render();
   try{ const ref=S.db.collection("reports").doc("settings"); const d=await ref.get(); const x=d.exists?d.data():{}; await ref.set({...x,target:t,planHours:G.hours||x.planHours||null}); toast("✓ 目標："+fmtYen(t)+"円"); }catch(e){ toast("保存できませんでした",false); } }
+async function goalMonth(id){ G.monthFor=id; if(!S.db) return;
+  try{ const st=await S.db.collection("reports").doc("settings").get(); const x=st.exists?st.data():{}; if(x.cutoff) N.cutoff=x.cutoff; if(x.ashi!=null) N.ashi=x.ashi; if(x.ashiRate!=null) N.ashiRate=x.ashiRate;
+    const sd=new Date(S.shift&&S.shift.start||Date.now()), ds=sd.getFullYear()+"-"+String(sd.getMonth()+1).padStart(2,"0")+"-"+String(sd.getDate()).padStart(2,"0");
+    const p=period(ds); if(!p) return;
+    const reps=(await S.db.collection("reports").get()).docs.filter(d=>d.id!=="settings"&&d.id!==id).map(d=>({id:d.id,...d.data()})).filter(r=>r.date&&r.date>=p.from&&r.date<=p.to);
+    let inc=0, ex=0, n=0; const have=new Set(reps.map(r=>r.id));
+    reps.forEach(r=>{ const t=r.total!=null?r.total:(r.rides||[]).reduce((a,x)=>a+(x.fare||0),0); inc+=t; ex+=r.total_ex||Math.round(t/1.1); n++; });
+    const shifts=(await S.db.collection("shifts").get()).docs.map(d=>({id:d.id,...d.data()})).filter(sh=>sh.id!==id&&!have.has(sh.id)&&sh.start);
+    const day=t=>{ const d=new Date(t); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); };
+    const inP=shifts.filter(sh=>{ const d=day(sh.start); return d>=p.from&&d<=p.to; });
+    if(inP.length){ const evs=(await S.db.collection("events").get()).docs.map(d=>d.data());
+      inP.forEach(sh=>{ const t=evs.filter(e=>e.shift===sh.id&&e.type==="dropoff").reduce((a,e)=>a+(Number(e.amount)||0),0)+evs.filter(e=>e.shift===sh.id&&e.type==="dispatch_cancel").reduce((a,e)=>a+(Number(e.fee)||0),0); if(t>0){ inc+=t; ex+=Math.round(t/1.1); n++; } }); }
+    G.month={label:p.label.replace(/（.*/,""),to:p.to,inc,ex,n};
+  }catch(e){ G.month=null; }
+  if(S.shift&&S.shift.id===id) render(); }
 function goalRender(sales){
   const box=$("goal"); if(!box) return;
   if(!S.shift||!G.loaded){ box.hidden=true; return; }
@@ -265,6 +280,17 @@ function goalRender(sales){
   const ch=btn("変える","ghost",()=>{ G.edit=true; render(); }); ch.dataset.free="1"; ch.style.cssText="min-height:40px;font-size:15px;padding:0 10px";
   r2.append(l,ch);
   box.append(r1,bar,r2);
+  goalMonthRow(box,sales);
+}
+function goalMonthRow(box,sales){
+  if(G.monthFor!==S.shift.id){ goalMonth(S.shift.id); return; }
+  const m=G.month; if(!m) return;
+  const inc=m.inc+sales, ex=m.ex+Math.round(sales/1.1);
+  const r=document.createElement("div"); r.style.cssText="font-size:16px;color:var(--muted);margin-top:6px;border-top:1px solid var(--line);padding-top:6px";
+  const a=document.createElement("div"); a.className="yen"; a.textContent=m.label+"（"+(m.n+1)+"乗務目）の累計 "+fmtYen(inc)+"円"; r.append(a);
+  if(N.ashi){ const b=document.createElement("div"); b.className="yen"; const left=N.ashi-ex; b.textContent=left>0?"足切り（税抜 "+fmtYen(N.ashi)+"円）まで あと "+fmtYen(left)+"円":"足切りクリア（税抜 "+fmtYen(ex)+"円）"; if(left<=0) b.style.color="var(--vacant)"; r.append(b); }
+  else { const b=document.createElement("div"); b.textContent="足切り額は「入庫後」→「給与の設定」で入れると、ここに残りが出ます。"; r.append(b); }
+  box.append(r);
 }
 
 /* ---------- render ---------- */
@@ -828,7 +854,7 @@ function paySetRender(){
     const r=Number($("psRate").value), c=Number($("psCut").value), a=Number($("psAshi").value)||0, ar=Number($("psAshiRate").value)||null;
     if(!(r>0&&r<=100)||!(c>=1&&c<=31)){ toast("歩合率と締め日を確かめてください",false); return; }
     N.rate=r/100; N.cutoff=c; N.ashi=a; N.ashiRate=ar?ar/100:null;
-    try{ await S.db.collection("reports").doc("settings").set({rest:N.rest||null,rate:N.rate,cutoff:N.cutoff,ashi:N.ashi,ashiRate:N.ashiRate,target:G.target||null,planHours:G.hours||null}); toast("✓ 設定を保存しました"); $("paySet").open=false; if(N.pick) nipShowSaved(N.pick); }catch(e){ toast("保存できませんでした",false); } });
+    try{ await S.db.collection("reports").doc("settings").set({rest:N.rest||null,rate:N.rate,cutoff:N.cutoff,ashi:N.ashi,ashiRate:N.ashiRate,target:G.target||null,planHours:G.hours||null}); toast("✓ 設定を保存しました"); $("paySet").open=false; G.monthFor=null; if(N.pick) nipShowSaved(N.pick); }catch(e){ toast("保存できませんでした",false); } });
   sv.dataset.free="1"; sv.style.width="100%"; b.append(sv);
 }
 
@@ -853,6 +879,7 @@ function watchShift(){
   { let show=false; try{ show=localStorage.getItem("showYen")==="1"; }catch(e){}
     const apply=()=>{ document.body.classList.toggle("hideyen",!show); $("yenTip").textContent= show ? "金額を出しています（数字を長押しでぼかしに戻す）" : "金額はぼかしています。数字を押すと5秒だけ見えます（長押しでずっと表示）"; };
     let t=null, lp=null;
+    $("goal").addEventListener("click",e=>{ if(show||e.target.closest("button")) return; document.body.classList.remove("hideyen"); clearTimeout(t); t=setTimeout(()=>{ if(!show) document.body.classList.add("hideyen"); },5000); });
     $("stats").addEventListener("click",()=>{ if(show) return; document.body.classList.remove("hideyen"); clearTimeout(t); t=setTimeout(()=>{ if(!show) document.body.classList.add("hideyen"); },5000); });
     $("stats").addEventListener("pointerdown",()=>{ lp=setTimeout(()=>{ show=!show; try{ localStorage.setItem("showYen",show?"1":"0"); }catch(e){} apply(); try{ navigator.vibrate&&navigator.vibrate(40); }catch(e){} },800); });
     ["pointerup","pointerleave","pointercancel"].forEach(ev=>$("stats").addEventListener(ev,()=>clearTimeout(lp)));

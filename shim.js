@@ -62,7 +62,7 @@ window.NO_CHAT=true;   // 雑談の相談はアプリに入れない
     pill();
   }
   // 入庫後（日報）の画面を開いていれば、新しい記録で描き直す
-  function refreshAfter(){ try{ if(document.body.classList.contains("after") && typeof nipLoad==="function") nipLoad(); }catch(e){} }
+  function refreshAfter(){ try{ if(typeof goalLoad==="function"){ if(typeof G==="object") G.monthFor=null; goalLoad(); } }catch(e){} try{ if(document.body.classList.contains("after") && typeof nipLoad==="function") nipLoad(); }catch(e){} }
   // 同じ時間帯の乗務が2つある（Claude 内アプリと位置が取れる版で別々に出庫した）ときは、早いほうに1つにまとめる
   function mergeShifts(){
     const sh=Object.values(store).filter(s=>s.c==="shifts"&&s.d&&s.d.start).sort((a,b)=>a.d.start-b.d.start);
