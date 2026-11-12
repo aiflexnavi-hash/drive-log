@@ -34,17 +34,18 @@ window.NO_CHAT=true;   // 雑談の相談はアプリに入れない
   }
   function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,10); }
 
-  let syncing=false, lastOk=0, failed=false;
+  let syncing=false, lastOk=0, failed=false, oldServer=false;
   async function sync(){
     if(syncing||!API) return; syncing=true;
+    let sent=false;
     try{
       while(queue.length){
         const keys=queue.slice(0,40);
         await call({op:"put",writes:keys.map(k=>{ const s=store[k]; return s?{c:s.c,i:s.i,u:s.u,d:s.d}:null; }).filter(Boolean)});
-        queue=queue.filter(k=>!keys.includes(k)); save();
+        queue=queue.filter(k=>!keys.includes(k)); save(); sent=true;
       }
-      failed=false; lastOk=Date.now();
-    }catch(e){ failed=true; }
+      if(sent){ failed=false; oldServer=false; lastOk=Date.now(); }
+    }catch(e){ failed=true; if(e&&e.code==="bad_op") oldServer=true; }
     syncing=false; pill();
   }
   async function pull(){
@@ -55,9 +56,9 @@ window.NO_CHAT=true;   // 雑談の相談はアプリに入れない
       const seen=new Set();
       let diff=false;
       j.docs.forEach(s=>{ const k=s.c+"/"+s.i; seen.add(k); if(queue.includes(k)) return; const cur=store[k]; if(!cur||cur.u<s.u){ store[k]={c:s.c,i:s.i,u:s.u,d:s.x?null:s.d}; diff=true; } });
-      save(); changed(); failed=false; lastOk=Date.now();
+      save(); changed(); failed=false; oldServer=false; lastOk=Date.now();
       if(diff) refreshAfter();
-    }catch(e){ failed=true; }
+    }catch(e){ failed=true; if(e&&e.code==="bad_op") oldServer=true; }
     pill();
   }
   // 入庫後（日報）の画面を開いていれば、新しい記録で描き直す
@@ -65,6 +66,7 @@ window.NO_CHAT=true;   // 雑談の相談はアプリに入れない
   function pill(){
     const el=document.getElementById("sync"); if(!el) return;
     if(!API){ el.textContent="保存：未設定"; el.className="gps bad"; return; }
+    if(oldServer){ el.textContent="スマホに保存中（Google 側の差し替え待ち）"+(queue.length?" "+queue.length+"件":""); el.className="gps"; el.style.color="var(--wait)"; el.style.borderColor="var(--wait)"; return; }
     if(queue.length){ el.textContent="未送信 "+queue.length+"件"+(failed?"（電波待ち）":""); el.className="gps"; el.style.color="var(--wait)"; el.style.borderColor="var(--wait)"; return; }
     el.style.color=""; el.style.borderColor="";
     if(failed){ el.textContent="保存：つながりません"; el.className="gps bad"; } else { el.textContent="保存：OK"; el.className="gps ok"; }
