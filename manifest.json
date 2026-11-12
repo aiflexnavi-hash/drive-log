@@ -1,0 +1,9 @@
+{
+  "name": "乗務記録",
+  "short_name": "乗務記録",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0f1316",
+  "theme_color": "#0f1316",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

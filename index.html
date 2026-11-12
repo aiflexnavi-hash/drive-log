@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#0f1316">
+<link rel="manifest" href="manifest.json">
+<title>乗務記録</title>
+<style>
+/* One-screen cockpit: status + numbers, big state-driven buttons, chat, today's log. Dark only (night driving). */
+:root{
+  --bg:#0f1316; --panel:#182027; --line:#2a353f; --fg:#eef3f6; --muted:#93a3b0;
+  --vacant:#3fb67f; --wait:#e0a33a; --stand:#c98be0; --hired:#e5574b; --info:#5aa7e6;
+  --font:"Hiragino Sans","Noto Sans JP","Yu Gothic UI",system-ui,sans-serif;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--fg);font-family:var(--font);font-size:15px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  padding-top:calc(12px + env(safe-area-inset-top,0px));padding-bottom:calc(32px + env(safe-area-inset-bottom,0px))}
+[hidden]{display:none!important}
+.wrap{max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+header{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.state{font-size:28px;font-weight:700;letter-spacing:.04em;display:flex;align-items:center;gap:10px}
+.lamp{width:14px;height:14px;border-radius:50%;background:var(--muted)}
+.s-vacant .lamp{background:var(--vacant)} .s-cruise .lamp{background:var(--info)} .s-dispatch .lamp,.s-arrived .lamp{background:var(--hired)} .s-wait .lamp{background:var(--wait)} .s-stand .lamp{background:var(--stand)} .s-hired .lamp{background:var(--hired)}
+.chips2{display:flex;gap:6px;flex-wrap:wrap}
+.pill{font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:3px 10px}
+.pill.ok{color:var(--vacant);border-color:var(--vacant)} .pill.bad{color:var(--hired);border-color:var(--hired)} .pill.warn{color:var(--wait);border-color:var(--wait)}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;font-variant-numeric:tabular-nums}
+.stat{background:var(--panel);border-radius:10px;padding:8px 10px}
+.stat b{display:block;font-size:26px} .stat span{font-size:14px;color:var(--muted);letter-spacing:.06em}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+button{font:inherit;color:var(--fg);background:var(--panel);border:1px solid var(--line);border-radius:14px;min-height:88px;font-size:26px;font-weight:800;line-height:1.25;padding:6px 8px;cursor:pointer;touch-action:manipulation}
+button:focus-visible{outline:3px solid var(--info);outline-offset:2px}
+button:active{transform:scale(.98)}
+button.wide{grid-column:1/-1}
+button.cruise{background:var(--info);color:#04111c;border-color:transparent}
+button.vacant{background:var(--vacant);color:#06140d;border-color:transparent}
+button.wait{background:var(--wait);color:#1d1203;border-color:transparent}
+button.stand{background:var(--stand);color:#1a0a20;border-color:transparent}
+button.hired{background:var(--hired);color:#1f0503;border-color:transparent}
+button.small{min-height:72px;font-size:22px;font-weight:700}
+button.ghost{background:transparent;min-height:60px;font-size:19px;font-weight:600}
+button:disabled{opacity:.35}
+.lock{background:var(--hired);color:#1f0503;border-radius:12px;padding:10px 14px;font-weight:700;text-align:center}
+.sub{font-size:12px;color:var(--muted);letter-spacing:.08em}
+.sheet{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:10px}
+.amount{font-size:34px;font-weight:700;text-align:right;font-variant-numeric:tabular-nums;min-height:44px}
+.pad{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.pad button{min-height:68px;font-size:30px}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chips button{min-height:56px;font-size:19px;padding:0 14px;border-radius:999px}
+.chips button[aria-pressed="true"]{background:var(--info);color:#04111c;border-color:transparent}
+textarea,input{width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:10px;font:inherit;padding:10px}
+textarea{min-height:80px;font-size:22px}
+ol.log{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+ol.log li{font-size:17px;display:grid;grid-template-columns:56px minmax(0,1fr) auto;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+ol.log time{color:var(--muted);font-size:13px}
+ol.log .what{min-width:0;overflow-wrap:anywhere}
+ol.log .del{min-height:44px;font-size:16px;padding:0 12px;border-radius:8px}
+.empty{color:var(--muted);font-size:14px;padding:12px 0;margin:0}
+.note{color:var(--muted);font-size:13px;margin:0}
+.err{color:var(--hired);font-size:13px;margin:0}
+.chatlog{display:flex;flex-direction:column;gap:10px;max-height:65vh;overflow-y:auto}
+.msg{padding:12px 14px;border-radius:12px;line-height:1.6;overflow-wrap:anywhere;font-size:24px;font-weight:600}
+.msg .again{display:block;margin-top:8px;min-height:52px;font-size:19px;width:100%}
+.msg.me{align-self:flex-end;background:var(--line)}
+.msg.ai{align-self:flex-start;background:var(--bg);border:1px solid var(--line)}
+.msg.sys{color:var(--muted);font-size:17px;font-weight:400;align-self:center}
+@media (prefers-reduced-motion:reduce){button:active{transform:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="state" id="state"><span class="lamp"></span><span id="stateText">未出庫</span></div>
+    <div class="chips2"><span class="pill" id="gps">位置：確認中</span><span class="pill" id="sync">保存：確認中</span></div>
+  </header>
+
+  <section class="sheet" id="setup" hidden>
+    <div class="sub">はじめの設定</div>
+    <p class="note">送られてきたリンクから開き直してください。リンクに保存先の情報が入っています。</p>
+  </section>
+
+  <div class="stats">
+    <div class="stat"><span>営収</span><b id="stSales">0</b></div>
+    <div class="stat"><span>営収/h</span><b id="stRate">–</b></div>
+    <div class="stat"><span>乗車</span><b id="stRides">0</b></div>
+    <div class="stat"><span>経過</span><b id="stTime">–</b></div>
+  </div>
+
+  <div class="lock" id="lock" hidden>走行中は押せません。停車してから押してください</div>
+  <div id="main"></div>
+  <p class="err" id="err" hidden></p>
+
+  <section class="sheet" id="chat">
+    <div class="sub">相談（記録を見て答えます）</div>
+    <div id="chatLog" class="chatlog"></div>
+    <textarea id="chatIn" placeholder="例：次どこ行く？　八尾の終電何時？（キーボードのマイクでも入れられます）"></textarea>
+    <div class="grid">
+      <button class="ghost" id="speakBtn" type="button">答えを読み上げる：オン</button>
+      <button class="vacant" id="chatSend" type="button">聞く</button>
+    </div>
+  </section>
+
+  <section>
+    <div class="sub">この乗務の記録</div>
+    <ol class="log" id="log"></ol>
+    <p class="empty" id="empty">まだ記録はありません。「出庫」を押すと、ここに時刻と場所つきで並びます。</p>
+  </section>
+  <div class="grid">
+    <button class="ghost" id="exportBtn" type="button">記録を書き出す（CSV）</button>
+    <button class="ghost" id="memoBtn" type="button">メモを書く</button>
+  </div>
+  <p class="note">押すたびに時刻と現在地が自動で付きます。電波が切れても記録はスマホに残り、つながったら保存先へ送ります。走行中（時速10km超）はボタンが止まります。</p>
+</div>
+
+<script>
+"use strict";
+const TYPE = {
+  shift_start:"出庫", shift_end:"帰庫", wait_start:"付け待ち開始", wait_end:"付け待ち離脱",
+  nagashi_start:"流し開始", dispatch_accept:"アプリ受注（迎車へ）", dispatch_arrive:"迎車先に到着", dispatch_cancel:"迎車キャンセル", stand_start:"乗り場に並ぶ", stand_pos:"乗り場の順番", stand_behind:"後ろの台数", stand_end:"乗り場を離れる",
+  pickup:"乗車", dropoff:"降車", taxi_many:"空車 多い", taxi_few:"空車 少ない",
+  people_many:"人通り 多い", people_few:"人通り 少ない", memo:"メモ"
+};
+const APPS = ["GO","DiDi","S.RIDE","Uber","無線","その他"];
+const PAY = ["現金","カード","QR","アプリ","チケット"];
+const $ = id => document.getElementById(id);
+const LS = {
+  get(k,d){ try{ const v=localStorage.getItem(k); return v==null?d:JSON.parse(v); }catch(e){ return d; } },
+  set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} }
+};
+
+/* ---------- config from link (#u=<exec id>&k=<token>) ---------- */
+(function(){
+  const h=new URLSearchParams(location.hash.slice(1));
+  if(h.get("u")&&h.get("k")){ LS.set("cfg",{u:h.get("u"),k:h.get("k")}); history.replaceState(null,"",location.pathname); }
+})();
+const CFG = LS.get("cfg",null);
+const API = CFG ? "https://script.google.com/macros/s/"+CFG.u+"/exec" : null;
+
+const S = {
+  shift: LS.get("shift",null),        // {id,start}
+  events: LS.get("events",[]),        // this shift's events
+  queue: LS.get("queue",[]),          // unsent adds
+  delq: LS.get("delq",[]),            // unsent deletes
+  pos:null, sheet:null, amount:"", pay:null, memo:""
+};
+function persist(){ LS.set("shift",S.shift); LS.set("events",S.events); LS.set("queue",S.queue); LS.set("delq",S.delq); }
+function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
+
+/* ---------- server ---------- */
+async function call(body){
+  if(!API) throw new Error("no_cfg");
+  const r=await fetch(API,{method:"POST",body:JSON.stringify({token:CFG.k,...body})});
+  const j=await r.json(); if(!j.ok) throw new Error(j.error||"error"); return j;
+}
+let syncing=false;
+async function sync(){
+  if(syncing||!API) return; syncing=true;
+  try{
+    if(S.queue.length){ const batch=S.queue.slice(0,20); await call({op:"add",events:batch}); S.queue=S.queue.slice(batch.length); persist(); }
+    if(S.delq.length){ await call({op:"del",ids:S.delq}); S.delq=[]; persist(); }
+    setSync();
+    if(S.queue.length) setTimeout(()=>{ syncing=false; sync(); },200);
+  }catch(e){ setSync(true); }
+  syncing=false;
+}
+function setSync(failed){
+  const el=$("sync");
+  if(!API){ el.textContent="保存：未設定"; el.className="pill bad"; return; }
+  const n=S.queue.length+S.delq.length;
+  if(n===0){ el.textContent="保存：OK"; el.className="pill ok"; }
+  else { el.textContent="未送信 "+n+"件"+(failed?"（電波待ち）":""); el.className="pill warn"; }
+}
+async function recover(){
+  if(!API||S.shift||S.queue.length) return;
+  try{ const j=await call({op:"state"}); if(j.shift){ const st=j.events.find(e=>e.type==="shift_start");
+      S.shift={id:j.shift,start:st?Number(st.at):Date.now()};
+      S.events=j.events.map(e=>({...e,at:Number(e.at),amount:e.amount===""?null:Number(e.amount),lat:e.lat===""?null:Number(e.lat),lng:e.lng===""?null:Number(e.lng)}));
+      persist(); render(); } }catch(e){}
+}
+
+/* ---------- GPS ---------- */
+function startGps(){
+  const el=$("gps");
+  if(!("geolocation" in navigator)){ el.textContent="位置：使えません"; el.className="pill bad"; return; }
+  navigator.geolocation.watchPosition(p=>{
+    S.pos={lat:+p.coords.latitude.toFixed(6),lng:+p.coords.longitude.toFixed(6),acc:Math.round(p.coords.accuracy),spd:p.coords.speed,at:Date.now()};
+    el.textContent="位置：OK（±"+S.pos.acc+"m）"; el.className="pill ok"; render();
+  },e=>{ el.textContent= e.code===1 ? "位置：許可されていません" : "位置：取れません"; el.className="pill bad"; },
+  {enableHighAccuracy:true,maximumAge:5000,timeout:20000});
+}
+function moving(){ return !!(S.pos && S.pos.spd!=null && Date.now()-S.pos.at<15000 && S.pos.spd>2.8); }
+
+/* ---------- state ---------- */
+function currentState(){
+  if(!S.shift) return "off";
+  let st="vacant";
+  for(const e of S.events){
+    if(e.type==="wait_start") st="wait";
+    else if(e.type==="stand_start") st="stand";
+    else if(e.type==="nagashi_start") st="cruise";
+    else if(e.type==="dispatch_accept") st="dispatch";
+    else if(e.type==="dispatch_arrive") st="arrived";
+    else if(e.type==="dispatch_cancel") st="vacant";
+    else if(e.type==="wait_end"||e.type==="stand_end"||e.type==="dropoff") st="vacant";
+    else if(e.type==="pickup") st="hired";
+  }
+  return st;
+}
+const yen=n=>Number(n||0).toLocaleString("ja-JP");
+const hm=ms=>{ const m=Math.floor(ms/60000); return Math.floor(m/60)+":"+String(m%60).padStart(2,"0"); };
+const hhmm=t=>{ const d=new Date(t); return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0"); };
+
+function record(type, extra={}){
+  if(moving()){ render(); return; }
+  const p=S.pos && Date.now()-S.pos.at<120000 ? S.pos : null;
+  const ev={ id:uid(), type, at:Date.now(), ind:"taxi", shift:S.shift?S.shift.id:null,
+    lat:p?p.lat:null, lng:p?p.lng:null, acc:p?p.acc:null, kind:null, amount:null, pay:null, note:null, src:null, ...extra };
+  if(type==="shift_start"){ S.shift={id:"s"+uid(),start:ev.at}; ev.shift=S.shift.id; S.events=[]; }
+  S.events.push(ev); S.queue.push(ev);
+  if(type==="shift_end"){ S.shift=null; S.events=[]; }
+  persist(); render(); sync();
+}
+setInterval(()=>{ const t=document.getElementById("waitTimer"); if(!t) return; const sec=Math.floor((Date.now()-Number(t.dataset.since))/1000); const m=Math.floor(sec/60), ss=String(sec%60).padStart(2,"0");
+  t.textContent= sec>=300 ? "到着から "+m+"分"+ss+"秒（5分を過ぎました：キャンセル料の対象）" : "到着から "+m+"分"+ss+"秒（5分まであと "+Math.floor((300-sec)/60)+"分"+String((300-sec)%60).padStart(2,"0")+"秒）";
+  t.style.background= sec>=300 ? "var(--vacant)" : "var(--panel)"; t.style.color= sec>=300 ? "#06140d" : "var(--fg)"; },1000);
+function showErr(t){ const el=$("err"); el.textContent=t; el.hidden=false; }
+
+/* ---------- render ---------- */
+function btn(label, cls, fn, free){ const b=document.createElement("button"); b.type="button"; b.textContent=label; if(cls) b.className=cls; if(free) b.dataset.free="1"; b.addEventListener("click",fn); return b; }
+function render(){
+  const st=currentState(), lock=moving();
+  const names={off:"未出庫",vacant:"空車",cruise:"流し",dispatch:"迎車",arrived:"迎車先で待ち",wait:"付け待ち",stand:"乗り場",hired:"実車"};
+  $("state").className="state s-"+st; $("stateText").textContent=names[st];
+  $("lock").hidden=!lock;
+  const rides=S.events.filter(e=>e.type==="dropoff");
+  const sales=rides.reduce((a,e)=>a+(Number(e.amount)||0),0)+S.events.filter(e=>e.type==="dispatch_cancel").reduce((a,e)=>a+(Number(e.fee)||0),0);
+  $("stSales").textContent=yen(sales); $("stRides").textContent=rides.length;
+  if(S.shift){ const el=Date.now()-S.shift.start; $("stTime").textContent=hm(el); $("stRate").textContent= el>600000 ? yen(Math.round(sales/(el/3600000))) : "–"; }
+  else { $("stTime").textContent="–"; $("stRate").textContent="–"; }
+
+  const m=$("main"); m.replaceChildren();
+  if(S.sheet==="dropoff") m.append(dropSheet());
+  else if(S.sheet==="memo") m.append(memoSheet());
+  else if(S.sheet==="cancel") m.append(cancelSheet());
+  else {
+    const g=document.createElement("div"); g.className="grid";
+    if(st==="off") g.append(btn("出庫","vacant wide",()=>record("shift_start")));
+    if(st==="vacant"||st==="cruise"){ g.append(btn("乗車（手上げ）","hired",()=>record("pickup",{kind:"手上げ"})), btn("アプリ受注（迎車へ）","hired",()=>record("dispatch_accept")));
+      if(st==="vacant") g.append(btn("流し開始","cruise wide",()=>record("nagashi_start")));
+      g.append(btn("付け待ち開始","wait",()=>record("wait_start")), btn("乗り場に並ぶ","stand",()=>record("stand_start"))); }
+    if(st==="wait") g.append(btn("乗車","hired",()=>record("pickup",{kind:"付け待ち"})), btn("付け待ち離脱","",()=>record("wait_end")));
+    if(st==="stand") g.append(btn("乗車","hired",()=>record("pickup",{kind:"乗り場"})), btn("列を離れる","",()=>record("stand_end")));
+    if(st==="stand"){ const sp=[...S.events].reverse().find(x=>x.type==="stand_pos"||x.type==="stand_start"); const cur=sp&&sp.type==="stand_pos"?sp.n:null;
+      const ch=document.createElement("div"); ch.className="chips"; ch.style.gridColumn="1/-1";
+      const lb=document.createElement("div"); lb.className="sub"; lb.style.width="100%"; lb.textContent=cur?"数がずれたら押し直す":"並んだら、今何台目？"; ch.append(lb);
+      ["1","2","3","4","5","6","7","8","9","10","11+"].forEach(n=>{ const b=btn(n,"",()=>record("stand_pos",{n:n})); b.setAttribute("aria-pressed",String(cur===n)); ch.append(b); });
+      g.prepend(ch);
+      const curN=cur&&cur!=="11+"?Number(cur):null;
+      if(curN&&curN>1){ const dn=btn("1台進んだ → "+(curN-1)+"台目","wait wide",()=>record("stand_pos",{n:String(curN-1)})); g.prepend(dn); }
+      if(cur){ const now=document.createElement("div"); now.className="amount"; now.style.gridColumn="1/-1"; now.style.textAlign="center"; now.textContent="今 "+cur+" 台目"; g.prepend(now); } }
+    if(st==="dispatch"||st==="arrived"){
+      const acc=[...S.events].reverse().find(x=>x.type==="dispatch_accept");
+      const setApp=a=>{ const nu={...acc,id:uid(),app:a}; S.events=S.events.map(x=>x.id===acc.id?nu:x); const qi=S.queue.findIndex(x=>x.id===acc.id); if(qi>=0) S.queue.splice(qi,1); else S.delq.push(acc.id); S.queue.push(nu); persist(); render(); sync(); };
+      const ch=document.createElement("div"); ch.className="chips wide"; ch.style.gridColumn="1/-1";
+      const lb=document.createElement("div"); lb.className="sub"; lb.style.width="100%"; lb.textContent="どのアプリ？"; ch.append(lb);
+      APPS.forEach(a=>{ const b=btn(a,"",()=>setApp(a)); b.dataset.free="1"; b.setAttribute("aria-pressed",String(!!acc&&acc.app===a)); ch.append(b); });
+      g.append(ch);
+      if(st==="dispatch") g.append(btn("迎車先に到着","wait wide",()=>record("dispatch_arrive",{app:acc&&acc.app||null})));
+      g.append(btn("お客さん乗車","hired",()=>record("pickup",{kind:"アプリ・迎車",app:acc&&acc.app||null})), btn("迎車キャンセル","",()=>{ S.sheet="cancel"; S.amount=""; S.reason=null; render(); }));
+      if(st==="arrived"){ const arr=[...S.events].reverse().find(x=>x.type==="dispatch_arrive"); const tm=document.createElement("div"); tm.id="waitTimer"; tm.className="lock"; tm.style.gridColumn="1/-1"; tm.style.background="var(--panel)"; tm.style.color="var(--fg)"; tm.dataset.since=arr?arr.at:Date.now(); g.prepend(tm); }
+    }
+    if(st==="hired") g.append(btn("降車（金額を入れる）","vacant wide",()=>{S.sheet="dropoff";S.amount="";S.pay=null;render();}));
+    if(st!=="off"){
+      g.append(btn("空車 多い","small",()=>record("taxi_many")), btn("空車 少ない","small",()=>record("taxi_few")),
+               btn("人通り 多い","small",()=>record("people_many")), btn("人通り 少ない","small",()=>record("people_few")));
+      if(st!=="hired") g.append(btn("帰庫","ghost wide",()=>record("shift_end")));
+      const last=S.events[S.events.length-1];
+      if(last && last.type!=="shift_start") g.prepend(btn("↩ ひとつ戻す："+(TYPE[last.type]||""),"ghost wide",()=>{ S.events=S.events.filter(x=>x.id!==last.id); const qi=S.queue.findIndex(x=>x.id===last.id); if(qi>=0) S.queue.splice(qi,1); else S.delq.push(last.id); persist(); render(); sync(); }));
+    }
+    m.append(g);
+  }
+  m.querySelectorAll("button").forEach(b=>{ if(lock && !b.dataset.free) b.disabled=true; });
+  $("chatIn").disabled=lock; $("chatSend").disabled=lock||C.busy;
+  renderLog(); setSync();
+}
+function dropSheet(){
+  const s=document.createElement("div"); s.className="sheet";
+  const a=document.createElement("div"); a.className="amount"; a.textContent=(S.amount?yen(+S.amount):"0")+" 円";
+  const pad=document.createElement("div"); pad.className="pad";
+  ["1","2","3","4","5","6","7","8","9","00","0","←"].forEach(k=>pad.append(btn(k,"",()=>{ if(k==="←") S.amount=S.amount.slice(0,-1); else if(S.amount.length<6) S.amount=(S.amount+k).replace(/^0+/,""); render(); },true)));
+  const chips=document.createElement("div"); chips.className="chips";
+  PAY.forEach(p=>{ const b=btn(p,"",()=>{S.pay=S.pay===p?null:p;render();},true); b.setAttribute("aria-pressed",String(S.pay===p)); chips.append(b); });
+  const row=document.createElement("div"); row.className="grid";
+  const ok=btn(S.editId?"金額を直す":"降車を記録","vacant",()=>{ if(!S.amount) return;
+    if(S.editId){ const old=S.events.find(x=>x.id===S.editId);
+      if(old){ // 直しは「古い記録を消して、同じ時刻・場所で新しく入れる」
+        const nu={...old,id:uid(),amount:+S.amount,pay:S.pay};
+        S.events=S.events.map(x=>x.id===old.id?nu:x);
+        const qi=S.queue.findIndex(x=>x.id===old.id); if(qi>=0) S.queue.splice(qi,1); else S.delq.push(old.id);
+        S.queue.push(nu); persist(); sync(); }
+      S.editId=null; }
+    else record("dropoff",{amount:+S.amount,pay:S.pay});
+    S.sheet=null; render(); }, !!S.editId);
+  ok.disabled=!S.amount;
+  row.append(btn("やめる","ghost",()=>{S.sheet=null;S.editId=null;render();},true), ok);
+  s.append(a,pad,chips,row); return s;
+}
+function cancelSheet(){
+  const s=document.createElement("div"); s.className="sheet";
+  const acc=[...S.events].reverse().find(x=>x.type==="dispatch_accept");
+  const arr=[...S.events].reverse().find(x=>x.type==="dispatch_arrive"&&acc&&x.at>=acc.at);
+  const waited=arr?Math.round((Date.now()-arr.at)/1000):null;
+  const info=document.createElement("div"); info.className="sub";
+  info.textContent= waited!=null ? "到着から "+Math.floor(waited/60)+"分"+String(waited%60).padStart(2,"0")+"秒 待ちました" : "到着前のキャンセル";
+  const rs=document.createElement("div"); rs.className="chips";
+  ["お客さん不在","お客さん都合","アプリ側の取消","自分から"].forEach(r=>{ const b=btn(r,"",()=>{S.reason=S.reason===r?null:r;render();}); b.dataset.free="1"; b.setAttribute("aria-pressed",String(S.reason===r)); rs.append(b); });
+  const lab=document.createElement("div"); lab.className="sub"; lab.textContent="キャンセル料（もらえる場合だけ入れる）";
+  const a=document.createElement("div"); a.className="amount"; a.textContent=(S.amount?yen(+S.amount):"0")+" 円";
+  const pad=document.createElement("div"); pad.className="pad";
+  ["1","2","3","4","5","6","7","8","9","00","0","←"].forEach(k=>{ const b=btn(k,"",()=>{ if(k==="←") S.amount=S.amount.slice(0,-1); else if(S.amount.length<6) S.amount=(S.amount+k).replace(/^0+/,""); render(); }); b.dataset.free="1"; pad.append(b); });
+  const row=document.createElement("div"); row.className="grid";
+  const c=btn("やめる","ghost",()=>{S.sheet=null;render();}); c.dataset.free="1";
+  const ok=btn("キャンセルを記録","vacant",()=>{ record("dispatch_cancel",{app:acc&&acc.app||null,reason:S.reason,waited:waited,fee:S.amount?+S.amount:null,arrivedAt:arr?arr.at:null}); S.sheet=null; render(); });
+  ok.dataset.free="1";
+  row.append(c,ok);
+  s.append(info,rs,lab,a,pad,row); return s;
+}
+function memoSheet(){
+  const s=document.createElement("div"); s.className="sheet";
+  const t=document.createElement("textarea"); t.id="memoText"; t.placeholder="例：中央大通の北側、縄張りの車あり"; t.value=S.memo;
+  t.addEventListener("input",()=>{S.memo=t.value;});
+  const row=document.createElement("div"); row.className="grid";
+  row.append(btn("やめる","ghost",()=>{S.sheet=null;render();},true), btn("メモを記録","vacant",()=>{ const v=S.memo.trim(); if(!v) return; record("memo",{note:v}); S.memo=""; S.sheet=null; render(); }));
+  s.append(t,row); setTimeout(()=>t.focus(),0); return s;
+}
+function label(e){
+  let t=TYPE[e.type]||e.type; if(e.kind) t+="（"+e.kind+"）"; if(e.app) t+="［"+e.app+"］"; if(e.type==="stand_pos") t+="："+e.n+"台目"; if(e.type==="stand_behind") t+="："+e.n+"台";
+  if(e.type==="dropoff") t+="　"+yen(e.amount)+"円"+(e.pay?"・"+e.pay:"");
+  if(e.type==="dispatch_cancel"){ if(e.reason) t+="・"+e.reason; if(e.waited!=null&&e.waited!=="") t+="・待ち"+Math.floor(e.waited/60)+"分"+String(e.waited%60).padStart(2,"0")+"秒"; if(e.fee) t+="・キャンセル料"+yen(e.fee)+"円"; }
+  if(e.note) t+="："+e.note; if(e.lat==null||e.lat==="") t+="（位置なし）"; return t;
+}
+function renderLog(){
+  const ol=$("log"); ol.replaceChildren();
+  const list=[...S.events].reverse();
+  $("empty").hidden=list.length>0;
+  for(const e of list){
+    const li=document.createElement("li");
+    const tm=document.createElement("time"); tm.textContent=hhmm(e.at);
+    const w=document.createElement("div"); w.className="what"; w.textContent=label(e);
+    const del=btn("消す","ghost del",()=>{
+      S.events=S.events.filter(x=>x.id!==e.id);
+      const qi=S.queue.findIndex(x=>x.id===e.id); if(qi>=0) S.queue.splice(qi,1); else S.delq.push(e.id);
+      if(e.type==="shift_start"){ S.shift=null; S.events=[]; }
+      persist(); render(); sync();
+    },true);
+    const box=document.createElement("div"); box.style.display="flex"; box.style.gap="6px";
+    if(e.type==="dropoff") box.append(btn("直す","ghost del",()=>{ S.editId=e.id; S.amount=String(e.amount||""); S.pay=e.pay||null; S.sheet="dropoff"; render(); window.scrollTo({top:0,behavior:"smooth"}); },true));
+    box.append(del);
+    li.append(tm,w,box); ol.append(li);
+  }
+}
+
+/* ---------- export ---------- */
+async function exportCsv(){
+  let rows=S.events;
+  try{ if(API){ await sync(); const j=await call({op:"all"}); rows=j.events; } }catch(e){ showErr("保存先から読めないので、この乗務の分だけ書き出します。"); }
+  const wd="日月火水木金土";
+  const out=[["日時","曜日","種類","乗り方","アプリ","金額","キャンセル料","待ち秒","理由","支払い","メモ","緯度","経度","精度m","乗務ID"]];
+  rows.slice().sort((a,b)=>a.at-b.at).forEach(e=>{ const t=new Date(Number(e.at));
+    const ts=t.getFullYear()+"-"+String(t.getMonth()+1).padStart(2,"0")+"-"+String(t.getDate()).padStart(2,"0")+" "+hhmm(t);
+    out.push([ts,wd[t.getDay()],TYPE[e.type]||e.type,e.kind??"",e.app??"",e.amount??"",e.fee??"",e.waited??"",e.reason??"",e.pay??"",e.note??"",e.lat??"",e.lng??"",e.acc??"",e.shift??""]); });
+  const csv="﻿"+out.map(r=>r.map(v=>{ v=String(v??""); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }).join(",")).join("\n");
+  const n=new Date();
+  const name=n.getFullYear()+String(n.getMonth()+1).padStart(2,"0")+String(n.getDate()).padStart(2,"0")+"-"+String(n.getHours()).padStart(2,"0")+String(n.getMinutes()).padStart(2,"0")+"-乗務記録.csv";
+  const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"})); a.download=name; document.body.append(a); a.click(); a.remove();
+}
+
+/* ---------- chat ---------- */
+const C={ speak:LS.get("speak",true), hist:[], busy:false };
+function addMsg(cls,text){ const d=document.createElement("div"); d.className="msg "+cls; d.textContent=text; $("chatLog").append(d); d.scrollIntoView({block:"nearest"}); return d; }
+function addAgain(bubble,text){ if(!("speechSynthesis" in window)) return; const b=document.createElement("button"); b.type="button"; b.className="ghost again"; b.dataset.free="1"; b.textContent="🔊 読み上げる"; b.addEventListener("click",()=>{ const k=C.speak; C.speak=true; say(text); C.speak=k; }); bubble.append(b); }
+function say(text){ try{ if(!C.speak||!("speechSynthesis" in window)) return; speechSynthesis.cancel(); const u=new SpeechSynthesisUtterance(text); u.lang="ja-JP"; speechSynthesis.speak(u); }catch(e){} }
+async function ask(){
+  const q=$("chatIn").value.trim(); if(!q||C.busy) return;
+  if(moving()){ render(); return; }
+  try{ if("speechSynthesis" in window && C.speak){ const u=new SpeechSynthesisUtterance(" "); u.volume=0; speechSynthesis.speak(u); } }catch(e){}
+  C.busy=true; render(); addMsg("me",q); $("chatIn").value="";
+  const bubble=addMsg("ai","考え中…");
+  const now=new Date(), wd="日月火水木金土";
+  const rides=S.events.filter(e=>e.type==="dropoff"), sales=rides.reduce((a,e)=>a+(Number(e.amount)||0),0);
+  const system=["あなたは大阪のタクシー運転手（夜勤中心、営業所は城東区今福）の乗務中の相談相手です。",
+    "日本語で、停車中に読める短さ（3文以内）。地名は具体的に。違法な停車や駐車は勧めない（勧めるのは正規の乗り場か合法に停められるエリアだけ）。「時給」は使わず「営収/h」と言う。運転手の言ったことを大げさにしない。わからないことは推測と明記する。",
+    "次の JSON だけを返す：{\"reply\":\"運転手への返事\",\"memo\":\"発言に現場の事実（縄張り、空車や客の多さ、乗り場の様子、判断の理由など）があれば記録用に一文、なければ null\"}"].join("\n");
+  const prompt=["今："+now.getFullYear()+"/"+(now.getMonth()+1)+"/"+now.getDate()+"（"+wd[now.getDay()]+"） "+hhmm(now),
+    "現在地："+(S.pos?S.pos.lat+","+S.pos.lng:"不明"),
+    "この乗務：営収 "+sales+"円、乗車 "+rides.length+"回",
+    "この乗務の記録：\n"+(S.events.slice(-40).map(e=>hhmm(e.at)+" "+label(e)+(e.lat!=null&&e.lat!==""?" @"+e.lat+","+e.lng:"")).join("\n")||"なし"),
+    "これまでの会話：\n"+C.hist.slice(-6).map(h=>(h.r==="u"?"運転手：":"あなた：")+h.t).join("\n"),
+    "運転手の今の発言："+q].join("\n\n");
+  try{
+    const j=await call({op:"chat",system,prompt});
+    let r; try{ r=JSON.parse(j.text.replace(/^```(json)?|```$/g,"").trim()); }catch(e){ r={reply:j.text,memo:null}; }
+    const reply=r.reply||"うまく答えられませんでした。";
+    bubble.textContent=reply; C.hist.push({r:"u",t:q},{r:"a",t:reply}); addAgain(bubble,reply); say(reply);
+    if(r.memo&&r.memo!=="null"&&S.shift){ record("memo",{note:String(r.memo).slice(0,300),src:"chat"}); addMsg("sys","記録に残しました："+r.memo); }
+  }catch(e){
+    bubble.textContent= e.message==="no_key" ? "相談はまだ準備中です（AI のキーが未設定）。" : "答えられませんでした（"+e.message+"）。電波を確かめてもう一度どうぞ。";
+  }
+  C.busy=false; render();
+}
+
+/* ---------- boot ---------- */
+$("setup").hidden=!!API;
+$("exportBtn").addEventListener("click",exportCsv);
+$("memoBtn").addEventListener("click",()=>{ if(!S.shift){ showErr("出庫してからメモを書けます。"); return; } S.sheet="memo"; render(); });
+$("chatSend").addEventListener("click",ask);
+$("speakBtn").textContent="答えを読み上げる："+(C.speak?"オン":"オフ");
+$("speakBtn").addEventListener("click",()=>{ C.speak=!C.speak; LS.set("speak",C.speak); $("speakBtn").textContent="答えを読み上げる："+(C.speak?"オン":"オフ"); if(!C.speak) try{speechSynthesis.cancel();}catch(e){} });
+render(); startGps(); recover(); sync();
+setInterval(()=>{ render(); sync(); },30000);
+window.addEventListener("online",sync);
+async function wake(){ try{ if(navigator.wakeLock) await navigator.wakeLock.request("screen"); }catch(e){} }
+wake(); document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible") wake(); });
+</script>
+</body>
+</html>
