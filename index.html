@@ -184,7 +184,7 @@ async function recover(){
   if(!API||S.shift||S.queue.length) return;
   try{ const j=await call({op:"state"}); if(j.shift){ const st=j.events.find(e=>e.type==="shift_start");
       const cr=[...j.events].reverse().find(e=>e.type==="car"); S.shift={id:j.shift,start:st?Number(st.at):Date.now(),car:cr?cr.note:null};
-      S.events=j.events.map(e=>({...e,n:e.n===""||e.n==null?undefined:String(e.n),at:Number(e.at),amount:e.amount===""?null:Number(e.amount),lat:e.lat===""?null:Number(e.lat),lng:e.lng===""?null:Number(e.lng)}));
+      S.events=j.events.map(e=>({...e,n:e.n!==""&&e.n!=null?String(e.n):(/_pos$|other_count/.test(e.type)&&e.note!==""?String(e.note):undefined),where:e.where||(e.type==="other_count"?e.kind:undefined),at:Number(e.at),amount:e.amount===""?null:Number(e.amount),lat:e.lat===""?null:Number(e.lat),lng:e.lng===""?null:Number(e.lng)}));
       persist(); render(); } }catch(e){}
 }
 
@@ -230,6 +230,7 @@ function record(type, extra={}){
   const p=S.pos && Date.now()-S.pos.at<120000 ? S.pos : null;
   const ev={ id:uid(), type, at:Date.now(), ind:"taxi", shift:S.shift?S.shift.id:null,
     lat:p?p.lat:null, lng:p?p.lng:null, acc:p?p.acc:null, kind:null, amount:null, pay:null, note:null, src:null, ...extra };
+  if(extra.n!=null){ ev.note=String(extra.n); if(extra.where) ev.kind=extra.where; } // 保存先の列が古くても台数が残るように
   if(type==="shift_start"){ S.shift={id:"s"+uid(),start:ev.at}; ev.shift=S.shift.id; S.events=[]; }
   S.events.push(ev); S.queue.push(ev);
   if(type==="car"&&S.shift) S.shift.car=extra.note;
@@ -365,10 +366,10 @@ function memoSheet(){
   s.append(t,row); setTimeout(()=>t.focus(),0); return s;
 }
 function label(e){
-  let t=TYPE[e.type]||e.type; if(e.kind) t+="（"+e.kind+"）"; if(e.app) t+="［"+e.app+"］"; if(e.type==="stand_pos"||e.type==="wait_pos") t+="："+e.n+"台目"; if(e.type==="other_count") t+="（"+e.where+"）："+e.n+"台"; if(e.type==="stand_behind") t+="："+e.n+"台";
+  const cnt=/_pos$|other_count/.test(e.type); let t=TYPE[e.type]||e.type; if(e.kind&&!cnt) t+="（"+e.kind+"）"; if(e.app) t+="［"+e.app+"］"; if(e.type==="stand_pos"||e.type==="wait_pos") t+="："+e.n+"台目"; if(e.type==="other_count") t+="（"+e.where+"）："+e.n+"台"; if(e.type==="stand_behind") t+="："+e.n+"台";
   if(e.type==="dropoff") t+="　"+yen(e.amount)+"円"+(e.pay?"・"+e.pay:"");
   if(e.type==="dispatch_cancel"){ if(e.reason) t+="・"+e.reason; if(e.waited!=null&&e.waited!=="") t+="・待ち"+Math.floor(e.waited/60)+"分"+String(e.waited%60).padStart(2,"0")+"秒"; if(e.fee) t+="・キャンセル料"+yen(e.fee)+"円"; }
-  if(e.note) t+="："+e.note; if(e.lat==null||e.lat==="") t+="（位置なし）"; return t;
+  if(e.note&&!cnt) t+="："+e.note; if(e.lat==null||e.lat==="") t+="（位置なし）"; return t;
 }
 function renderLog(){
   const ol=$("log"); ol.replaceChildren();
