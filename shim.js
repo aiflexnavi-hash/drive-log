@@ -3,6 +3,7 @@
    保存はまずスマホの中（すぐ反映・電波なしでも動く）→ つながったら Google シートへ送る。
    AI は使わない（無料版は変動費ゼロ）。 */
 "use strict";
+window.NO_CHAT=true;   // 雑談の相談はアプリに入れない
 (function(){
   const LS={ get(k,d){ try{ const v=localStorage.getItem(k); return v==null?d:JSON.parse(v); }catch(e){ return d; } },
              set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} } };
@@ -50,6 +51,7 @@
     if(!API) return;
     try{
       const j=await call({op:"pull"});
+      if(!!j.ai!==aiOn){ aiOn=!!j.ai; LS.set("aiOn",aiOn); if(aiOn) setTimeout(()=>location.reload(),300); }
       const seen=new Set();
       let diff=false;
       j.docs.forEach(s=>{ const k=s.c+"/"+s.i; seen.add(k); if(queue.includes(k)) return; const cur=store[k]; if(!cur||cur.u<s.u){ store[k]={c:s.c,i:s.i,u:s.u,d:s.x?null:s.d}; diff=true; } });
@@ -112,11 +114,30 @@
   }
   const downloads={ save:async({filename,data})=>{ const a=document.createElement("a"); a.href=URL.createObjectURL(data instanceof Blob?data:new Blob([data],{type:"text/csv"})); a.download=filename; document.body.append(a); a.click(); a.remove(); } };
 
+  /* ---------- AI（保存先にキーがあるときだけ） ---------- */
+  let aiOn=LS.get("aiOn",false);
+  function b64(blob){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(String(r.result).split(",")[1]); r.onerror=rej; r.readAsDataURL(blob); }); }
+  async function ask(input,opts){
+    opts=opts||{};
+    const prompt= typeof input==="string" ? input : (input||[]).map(m=>m.content).join("\n\n");
+    const images=[]; for(const im of (opts.images||[])) images.push({t:im.type||"image/jpeg",b:await b64(im)});
+    const tier= opts.modelTier==="default"||opts.modelTier==="complex" ? "default" : "quick";
+    let j; try{ j=await call({op:"ai",tier,prompt,images}); }catch(e){ throw {code:e.code==="no_key"?"not_granted":(e.code||"error"),message:"AI を使えませんでした"}; }
+    if(opts.onText) try{ opts.onText({text:j.text,delta:j.text}); }catch(e){}
+    return {text:j.text,truncated:!!j.truncated};
+  }
+  const sample=Object.assign((i,o)=>ask(i,o),{
+    json:async(i,o)=>{ const r=await ask(i,o); const t=r.text; const a=t.indexOf("{"), z=t.lastIndexOf("}"); const a2=t.indexOf("["), z2=t.lastIndexOf("]");
+      const txt= a>=0&&(a2<0||a<a2) ? t.slice(a,z+1) : (a2>=0?t.slice(a2,z2+1):t); try{ return JSON.parse(txt); }catch(e){ throw {code:"bad_json",text:t}; } },
+    limits:async()=>({images:{maxCount:4,mediaTypes:["image/jpeg","image/png","image/webp"]}})
+  });
+
   window.claude={ use:async name=>{
+    if(name==="sample") return API&&aiOn?sample:null;
     if(name==="db") return API?db:null;
     if(name==="downloads") return downloads;
     if(name==="tts") return makeTts();
-    return null;   // sample（AI）は使わない
+    return null;
   }};
 
   /* ---------- 画面に足すもの：保存の状態・取り込み ---------- */

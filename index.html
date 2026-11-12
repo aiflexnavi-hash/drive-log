@@ -691,7 +691,7 @@ function watchShift(){
   try{
     const [db,dl,sm,tt]=await Promise.all([window.claude.use("db"), window.claude.use("downloads"), window.claude.use("sample"), window.claude.use("tts")]);
     S.dl=dl;
-    if(sm){ C.sample=sm; $("chat").hidden=false; $("chatSend").addEventListener("click",ask); }
+    if(sm){ C.sample=sm; if(!window.NO_CHAT) $("chat").hidden=false; $("chatSend").addEventListener("click",ask); }
     if(tt){ C.tts=tt; try{ tt.onState(({state})=>{ if(state==="speaking"){ C.ttsStarted=true; C.ttsWorked=true; } }); }catch(e){} }
     if(tt||HAS_SS){ const sb=$("speakBtn"); sb.hidden=false; sb.addEventListener("click",()=>{ C.speak=!C.speak; sb.textContent="答えを読み上げる："+(C.speak?"オン":"オフ"); if(!C.speak){ try{C.tts&&C.tts.stop();}catch(e){} try{HAS_SS&&speechSynthesis.cancel();}catch(e){} } }); }
     if(db){ S.db=db; clearTimeout(timer); watchShift(); }
