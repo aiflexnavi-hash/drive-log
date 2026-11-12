@@ -123,6 +123,7 @@ window.NO_CHAT=true;   // 雑談の相談はアプリに入れない
     const images=[]; for(const im of (opts.images||[])) images.push({t:im.type||"image/jpeg",b:await b64(im)});
     const tier= opts.modelTier==="default"||opts.modelTier==="complex" ? "default" : "quick";
     let j; try{ j=await call({op:"ai",tier,prompt,images}); }catch(e){ throw {code:e.code==="no_key"?"not_granted":(e.code||"error"),message:"AI を使えませんでした"}; }
+    try{ if(j.usage) write("ailog",uid(),{at:Date.now(),tier,model:j.model||null,images:images.length,in:j.usage.input_tokens||0,out:j.usage.output_tokens||0}); }catch(e){}   // 費用を測るため
     if(opts.onText) try{ opts.onText({text:j.text,delta:j.text}); }catch(e){}
     return {text:j.text,truncated:!!j.truncated};
   }
