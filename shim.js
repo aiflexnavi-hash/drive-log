@@ -22,6 +22,8 @@ window.NO_CHAT=true;   // 雑談の相談はアプリに入れない
   /* ---------- 保存（スマホ内 + 送信待ち） ---------- */
   const store=LS.get("docs2",{});      // "col/id" -> {c,i,u,d}
   let queue=LS.get("queue2",[]);       // 送信待ち "col/id"
+  // 走った道は量が多いので、送り終えた45日より前の分はスマホから消す（Google 側には残る）
+  { const old=Date.now()/1000-45*86400; let n=0; Object.keys(store).forEach(k=>{ const s=store[k]; if(s.c==="tracks"&&s.d&&s.d.to<old&&!queue.includes(k)){ delete store[k]; n++; } }); if(n) LS.set("docs2",store); }
   const listeners=new Set();
   let changeTimer=null;
   function save(){ LS.set("docs2",store); LS.set("queue2",queue); }
@@ -40,9 +42,10 @@ window.NO_CHAT=true;   // 雑談の相談はアプリに入れない
     let sent=false;
     try{
       while(queue.length){
-        const keys=queue.slice(0,40);
-        await call({op:"put",writes:keys.map(k=>{ const s=store[k]; return s?{c:s.c,i:s.i,u:s.u,d:s.d}:null; }).filter(Boolean)});
-        queue=queue.filter(k=>!keys.includes(k)); save(); sent=true;
+        const keys=queue.slice(0,40), sentU={};
+        await call({op:"put",writes:keys.map(k=>{ const s=store[k]; if(s) sentU[k]=s.u; return s?{c:s.c,i:s.i,u:s.u,d:s.d}:null; }).filter(Boolean)});
+        // 送っている間に書き直された分は、送り直すために残す
+        queue=queue.filter(k=>!keys.includes(k)||(store[k]&&store[k].u!==sentU[k])); save(); sent=true;
       }
       if(sent){ failed=false; oldServer=false; lastOk=Date.now(); }
     }catch(e){ failed=true; if(e&&e.code==="bad_op") oldServer=true; }
