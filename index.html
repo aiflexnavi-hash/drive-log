@@ -211,7 +211,10 @@ const TYPE = {
   people_many:"人通り 多い", people_few:"人通り 少ない", seen_hail:"手上げ客を見た", seen_rank:"乗り場に客待ち", memo:"メモ", rest_start:"休憩開始", rest_end:"休憩終了"
 };
 const APPS = ["GO","DiDi","S.RIDE","Uber","無線","その他"];
-const PAY = ["現金","カード","QR","アプリ","チケット"];
+const PAY0 = ["現金","カード","QR","アプリ","チケット"];
+// よく使う順に並べる（このスマホでの使った回数。同じ回数なら元の順）
+function useOrder(key,list){ let c={}; try{ c=JSON.parse(localStorage.getItem("use_"+key)||"{}"); }catch(e){} return [...list].sort((a,b)=>(c[b]||0)-(c[a]||0)||list.indexOf(a)-list.indexOf(b)); }
+function useCount(key,v){ if(!v) return; try{ const c=JSON.parse(localStorage.getItem("use_"+key)||"{}"); c[v]=(c[v]||0)+1; localStorage.setItem("use_"+key,JSON.stringify(c)); }catch(e){} }
 const S = { db:null, dl:null, shift:null, events:[], pos:null, sheet:null, amount:"", pay:null, memo:"" };
 const $ = id => document.getElementById(id);
 
@@ -527,7 +530,7 @@ function render(){
       const setApp=async a=>{ try{ await S.db.collection("events").doc(acc.id).update({app:a}); }catch(x){ showErr("記録できませんでした。"); } };
       const ch=document.createElement("div"); ch.className="chips wide"; ch.style.gridColumn="1/-1";
       const lb=document.createElement("div"); lb.className="sub"; lb.style.width="100%"; lb.textContent="どのアプリ？"; ch.append(lb);
-      APPS.forEach(a=>{ const b=btn(a,"",()=>setApp(a)); b.dataset.free="1"; b.setAttribute("aria-pressed",String(!!acc&&acc.app===a)); ch.append(b); });
+      useOrder("app",APPS).forEach(a=>{ const b=btn(a,"",()=>{ useCount("app",a); setApp(a); }); b.dataset.free="1"; b.setAttribute("aria-pressed",String(!!acc&&acc.app===a)); ch.append(b); });
       g.append(ch);
       if(st==="dispatch") g.append(btn("迎車先に到着","wait wide",()=>record("dispatch_arrive",{app:acc&&acc.app||null})));
       g.append(btn("お客さん乗車","hired",()=>record("pickup",{kind:"アプリ・迎車",app:acc&&acc.app||null})), btn("迎車キャンセル","",()=>{ S.sheet="cancel"; S.amount=""; S.reason=null; render(); }));
@@ -561,7 +564,7 @@ function dropSheet(){
     b.dataset.free="1"; pad.append(b);
   });
   const chips=document.createElement("div"); chips.className="chips";
-  PAY.forEach(p=>{ const b=btn(p,"",()=>{S.pay=S.pay===p?null:p;render();}); b.setAttribute("aria-pressed",S.pay===p); b.dataset.free="1"; chips.append(b); });
+  useOrder("pay",PAY0).forEach(p=>{ const b=btn(p,"",()=>{ if(S.pay!==p) useCount("pay",p); S.pay=S.pay===p?null:p;render();}); b.setAttribute("aria-pressed",S.pay===p); b.dataset.free="1"; chips.append(b); });
   // アプリのチップ（営収とは別。アプリからドライバー個人に入る）
   const tips=document.createElement("div"); tips.className="chips";
   { const l=document.createElement("div"); l.className="sub"; l.style.width="100%"; l.textContent="アプリのチップ（営収とは別・あれば）"; tips.append(l);
@@ -629,7 +632,7 @@ function editSheet(){
     r.append(mv(-5),mv(-1),t,mv(1),mv(5)); s.append(r); }
   // 種類ごとの中身
   if(e.type==="pickup") { s.append(sub("乗り方")); s.append(chips(["手上げ","乗り場","付け待ち","アプリ・迎車"],"kind",false)); }
-  if(e.type==="pickup"&&d.kind==="アプリ・迎車"||e.type==="dispatch_accept"||e.type==="dispatch_arrive"||e.type==="dispatch_cancel"){ s.append(sub("アプリ")); s.append(chips(APPS,"app")); }
+  if(e.type==="pickup"&&d.kind==="アプリ・迎車"||e.type==="dispatch_accept"||e.type==="dispatch_arrive"||e.type==="dispatch_cancel"){ s.append(sub("アプリ")); s.append(chips(useOrder("app",APPS),"app")); }
   if(e.type==="dropoff"||e.type==="dispatch_cancel"){
     if(e.type==="dispatch_cancel"){ s.append(sub("理由")); s.append(chips(["お客さん不在","お客さん都合","アプリ側の取消","自分から"],"reason")); }
     s.append(sub(e.type==="dropoff"?"金額":"キャンセル料（もらえる場合だけ）"));
@@ -637,7 +640,7 @@ function editSheet(){
     const pad=document.createElement("div"); pad.className="pad";
     ["1","2","3","4","5","6","7","8","9","00","0","←"].forEach(k=>{ const b=btn(k,"",()=>{ if(k==="←") d.amount=d.amount.slice(0,-1); else if(d.amount.length<6) d.amount=(d.amount+k).replace(/^0+/,""); render(); }); b.dataset.free="1"; pad.append(b); });
     s.append(pad);
-    if(e.type==="dropoff"){ s.append(sub("支払い")); s.append(chips(PAY,"pay"));
+    if(e.type==="dropoff"){ s.append(sub("支払い")); s.append(chips(useOrder("pay",PAY0),"pay"));
       s.append(sub("チップ（営収とは別）")); const c=document.createElement("div"); c.className="chips";
       [0,100,200,300,500,1000].forEach(v=>{ const b=btn(v?fmtYen(v)+"円":"なし","",()=>{ d.tip=v; render(); }); b.dataset.free="1"; b.setAttribute("aria-pressed",String((d.tip||0)===v)); c.append(b); });
       if(d.tip&&![100,200,300,500,1000].includes(d.tip)){ const b=btn(fmtYen(d.tip)+"円","",()=>{}); b.dataset.free="1"; b.setAttribute("aria-pressed","true"); c.append(b); }
