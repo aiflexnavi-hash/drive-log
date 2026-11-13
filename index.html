@@ -98,7 +98,7 @@ body.hideyen .yv{filter:blur(10px)}
 .calg button.done{background:rgba(46,139,255,.18)}
 .calg button.today{box-shadow:inset 0 0 0 2px var(--fg)}
 .calg button.sel{background:var(--fg);color:var(--bg)}
-.calg button.sel small{color:var(--bg)}
+.calg button.sel small,.calg button.sel span{color:var(--bg)!important}
 body.hideyen #stats .yen b, body.hideyen #log .yen, body.hideyen #goal .yen, body.hideyen .amount.yen{filter:blur(12px)}
 #stats{cursor:pointer;position:relative}
 #goal{background:var(--panel);border-radius:10px;padding:10px 12px;font-size:18px}
@@ -371,6 +371,18 @@ function goalMonthRow(box,sales){
 /* ---------- はじめの設定（締め日・歩合・足切り・出番日・月の目標） ---------- */
 // 設定は reports/settings にまとめて入れる。ほかの項目を消さないよう、いつも今の中身に足して保存する
 async function settingsPatch(p){ const ref=S.db.collection("reports").doc("settings"); const d=await ref.get(); const x=d.exists?d.data():{}; const n={...x,...p}; await ref.set(n); G.set=n; return n; }
+/* 日本の祝日（ネットを使わず計算。振替休日・国民の休日も） */
+const HOL={};
+function jpHolYear(y){ if(HOL[y]) return HOL[y]; const h={}, k=(m,d)=>y+"-"+String(m).padStart(2,"0")+"-"+String(d).padStart(2,"0");
+  const mon=(m,n)=>{ const w=new Date(y,m-1,1).getDay(); return 1+((8-w)%7)+(n-1)*7; };
+  const sp=Math.floor(20.8431+0.242194*(y-1980)-Math.floor((y-1980)/4)), au=Math.floor(23.2488+0.242194*(y-1980)-Math.floor((y-1980)/4));
+  [[1,1,"元日"],[1,mon(1,2),"成人の日"],[2,11,"建国記念の日"],[2,23,"天皇誕生日"],[3,sp,"春分の日"],[4,29,"昭和の日"],[5,3,"憲法記念日"],[5,4,"みどりの日"],[5,5,"こどもの日"],[7,mon(7,3),"海の日"],[8,11,"山の日"],[9,mon(9,3),"敬老の日"],[9,au,"秋分の日"],[10,mon(10,2),"スポーツの日"],[11,3,"文化の日"],[11,23,"勤労感謝の日"]].forEach(([m,d,n])=>{ h[k(m,d)]=n; });
+  Object.keys(h).sort().forEach(d=>{ const t=new Date(d+"T12:00:00"); if(t.getDay()!==0) return; const x=new Date(t); do{ x.setDate(x.getDate()+1); }while(h[ymd(x)]); h[ymd(x)]="振替休日"; });
+  Object.keys(h).sort().forEach(d=>{ const t=new Date(d+"T12:00:00"); t.setDate(t.getDate()+1); const m=ymd(t); t.setDate(t.getDate()+1); if(!h[m]&&h[ymd(t)]&&new Date(m+"T12:00:00").getDay()!==0) h[m]="国民の休日"; });
+  return HOL[y]=h; }
+function jpHol(k){ return jpHolYear(Number(k.slice(0,4)))[k]||null; }
+// 日付の文字色：日曜・祝日は赤、土曜は青
+function dayColor(k){ const w=new Date(k+"T12:00:00").getDay(); return (w===0||jpHol(k))?"#ff8a80":w===6?"#82b1ff":null; }
 const ymd=x=>x.getFullYear()+"-"+String(x.getMonth()+1).padStart(2,"0")+"-"+String(x.getDate()).padStart(2,"0");
 function workLeft(p){ const days=(G.set&&G.set.workDays)||[]; const today=ymd(new Date()); const inP=days.filter(d=>d>=p.from&&d<=p.to); return {all:inP.length,left:inP.filter(d=>d>=today).length,has:inP.length>0}; }
 function setupOpen(only){
@@ -406,7 +418,7 @@ function setupOpen(only){
     for(let i=0;i<d0.getDay();i++) g.append(document.createElement("div"));
     for(let d=new Date(d0); d<=d1; d.setDate(d.getDate()+1)){ const k=ymd(d), on=st.days.has(k);
       const b=document.createElement("button"); b.type="button"; b.dataset.free="1"; b.textContent=(d.getDate()===1||k===p.from?(d.getMonth()+1)+"/":"")+d.getDate();
-      b.style.cssText="min-height:48px;font-size:17px;border-radius:8px;border:1px solid var(--line);padding:0;"+(on?"background:#2e8bff;color:#fff;font-weight:700":"background:transparent;color:var(--fg)");
+      b.style.cssText="min-height:48px;font-size:17px;border-radius:8px;border:1px solid var(--line);padding:0;"+(on?"background:#2e8bff;color:#fff;font-weight:700":"background:transparent;color:"+(dayColor(k)||"var(--fg)"));
       b.addEventListener("click",()=>{ if(st.days.has(k)) st.days.delete(k); else st.days.add(k); draw(); }); g.append(b); }
     bx.append(g);
     const cnt=[...st.days].filter(k=>k>=p.from&&k<=p.to).length;
@@ -653,7 +665,7 @@ function setView(v){ V.cur=v; document.body.dataset.v=v; document.querySelectorA
 function viewRefresh(){ if(V.cur==="home") homeRender(); else if(V.cur==="cal") calRender(); }
 const mk=(tag,css,txt,cls)=>{ const e=document.createElement(tag); if(css) e.style.cssText=css; if(txt!=null) e.textContent=txt; if(cls) e.className=cls; return e; };
 const wk=k=>"日月火水木金土"[new Date(k+"T12:00:00").getDay()];
-const mdk=k=>{ const d=new Date(k+"T12:00:00"); return (d.getMonth()+1)+"/"+d.getDate()+"（"+wk(k)+"）"; };
+const mdk=k=>{ const d=new Date(k+"T12:00:00"); return (d.getMonth()+1)+"/"+d.getDate()+"（"+(jpHol(k)?"祝":wk(k))+"）"; };
 const man=v=>v>=10000?(Math.round(v/1000)/10)+"万":v>0?fmtYen(v):"";
 // 日ごとの乗務（日報があれば日報、なければアプリの記録）をまとめる
 async function dayData(){
@@ -743,15 +755,15 @@ async function calRender(){
   for(let i=0;i<d0.getDay();i++) g.append(document.createElement("div"));
   for(let d=new Date(d0); d<=d1; d.setDate(d.getDate()+1)){ const k=ymd(d), ds=days[k]||[], inc=ds.reduce((a,x)=>a+x.inc,0);
     const b=document.createElement("button"); b.type="button"; b.dataset.free="1"; b.dataset.k=k;
-    b.append(mk("span",null,(d.getDate()===1||k===p.from?(d.getMonth()+1)+"/":"")+d.getDate()));
+    b.append(mk("span",dayColor(k)?"color:"+dayColor(k):null,(d.getDate()===1||k===p.from?(d.getMonth()+1)+"/":"")+d.getDate()));
     const sm=document.createElement("small"); sm.textContent=ds.length?(inc>0?man(inc):"●"):""; sm.className="yv"; b.append(sm);
     if(wd.has(k)) b.classList.add("plan"); if(ds.length) b.classList.add("done"); if(k===today) b.classList.add("today"); if(k===V.calDay) b.classList.add("sel");
     b.addEventListener("click",()=>{ V.calDay=k; calRender(); }); g.append(b); }
   box.append(g);
-  box.append(mk("div","font-size:15px","青い枠＝出番の予定　塗り＝乗務した日　数字＝その日の営収（押すと5秒見えます）","note"));
+  box.append(mk("div","font-size:15px","赤い字＝日曜・祝日　青い枠＝出番の予定　塗り＝乗務した日　数字＝その日の営収（押すと5秒見えます）","note"));
   // 選んだ日の中身
   { const k=V.calDay, ds=days[k]||[], c=mk("div",null,null,"card");
-    c.append(mk("h3",null,mdk(k)+(wd.has(k)?"　出番":"")));
+    c.append(mk("h3",null,mdk(k)+(jpHol(k)?"　"+jpHol(k):"")+(wd.has(k)?"　出番":"")));
     if(!ds.length) c.append(mk("div","font-size:17px","この日の記録はありません。","note"));
     ds.forEach(x=>{ const t=mk("div","margin-top:6px");
       kv(t,x.rep?"日報":"アプリの記録",(x.start||"")+(x.end?"〜"+x.end:x.live?"〜乗務中":""));
