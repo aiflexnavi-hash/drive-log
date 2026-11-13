@@ -56,6 +56,9 @@ ol.log{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
 ol.log li{font-size:17px;display:grid;grid-template-columns:56px minmax(0,1fr) auto;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
 ol.log time{color:var(--muted);font-size:13px}
 ol.log .what{min-width:0;overflow-wrap:anywhere}
+ol.log li.tap{cursor:pointer}
+ol.log li.tap:active{background:var(--line)}
+ol.log .go{color:var(--muted);font-size:15px;white-space:nowrap}
 ol.log .del{min-height:44px;font-size:16px;padding:0 12px;border-radius:8px}
 .empty{color:var(--muted);font-size:14px;padding:12px 0}
 .chatlog{display:flex;flex-direction:column;gap:10px;max-height:65vh;overflow-y:auto}
@@ -469,6 +472,7 @@ function render(){
   if(S.sheet==="dropoff") m.append(dropSheet());
   else if(S.sheet==="memo") m.append(memoSheet());
   else if(S.sheet==="cancel") m.append(cancelSheet());
+  else if(S.sheet==="edit") m.append(editSheet());
   else {
     const g=document.createElement("div"); g.className="grid";
     // 金額を飛ばした降車：停車中なら入れるよう促す（古い順に1件ずつ）
@@ -579,6 +583,69 @@ function cancelSheet(){
   row.append(c,ok);
   s.append(info,rs,lab,a,pad,row); return s;
 }
+/* ---------- 履歴の1件を直す ---------- */
+function openEdit(id){
+  const e=S.events.find(x=>x.id===id); if(!e) return;
+  if(moving()){ toast("止まってから直してください",false); return; }
+  S.ed={id, at:e.at, kind:e.kind||null, app:e.app||null, amount:e.type==="dispatch_cancel"?String(e.fee||""):String(e.amount||""), pay:e.pay||null, tip:e.tip||0, reason:e.reason||null, note:e.note||"", n:e.n!=null?e.n:null, arm:0};
+  S.sheet="edit"; render(); window.scrollTo({top:0,behavior:"smooth"});
+}
+function editSheet(){
+  const s=document.createElement("div"); s.className="sheet";
+  const e=S.events.find(x=>x.id===(S.ed&&S.ed.id)); const d=S.ed;
+  const close=()=>{ S.sheet=null; S.ed=null; render(); };
+  if(!e){ setTimeout(close,0); return s; }
+  const sub=t=>{ const h=document.createElement("div"); h.className="sub"; h.textContent=t; return h; };
+  const chips=(list,key,toggle=true)=>{ const c=document.createElement("div"); c.className="chips";
+    list.forEach(v=>{ const b=btn(v,"",()=>{ d[key]=toggle&&d[key]===v?null:v; render(); }); b.dataset.free="1"; b.setAttribute("aria-pressed",String(d[key]===v)); c.append(b); }); return c; };
+  const h=document.createElement("div"); h.className="sub"; h.style.cssText="font-size:20px;color:var(--fg)"; h.textContent="この記録を直す："+(TYPE[e.type]||e.type); s.append(h);
+  // 時刻
+  s.append(sub("時刻"));
+  { const r=document.createElement("div"); r.style.cssText="display:grid;grid-template-columns:1fr 1fr auto 1fr 1fr;gap:6px;align-items:center";
+    const mv=m=>{ const b=btn((m>0?"+":"−")+Math.abs(m)+"分","",()=>{ const t=d.at+m*60000; if(t>Date.now()+60000){ toast("今より後にはできません",false); return; } d.at=t; render(); }); b.dataset.free="1"; b.style.cssText="min-height:56px;font-size:16px;padding:0 2px;white-space:nowrap"; return b; };
+    const t=document.createElement("div"); t.style.cssText="font-size:30px;font-weight:700;text-align:center;padding:0 6px"; t.textContent=hhmm(d.at);
+    r.append(mv(-5),mv(-1),t,mv(1),mv(5)); s.append(r); }
+  // 種類ごとの中身
+  if(e.type==="pickup") { s.append(sub("乗り方")); s.append(chips(["手上げ","乗り場","付け待ち","アプリ・迎車"],"kind",false)); }
+  if(e.type==="pickup"&&d.kind==="アプリ・迎車"||e.type==="dispatch_accept"||e.type==="dispatch_arrive"||e.type==="dispatch_cancel"){ s.append(sub("アプリ")); s.append(chips(APPS,"app")); }
+  if(e.type==="dropoff"||e.type==="dispatch_cancel"){
+    if(e.type==="dispatch_cancel"){ s.append(sub("理由")); s.append(chips(["お客さん不在","お客さん都合","アプリ側の取消","自分から"],"reason")); }
+    s.append(sub(e.type==="dropoff"?"金額":"キャンセル料（もらえる場合だけ）"));
+    const a=document.createElement("div"); a.className="amount"; a.textContent=(d.amount?fmtYen(+d.amount):"0")+" 円"; s.append(a);
+    const pad=document.createElement("div"); pad.className="pad";
+    ["1","2","3","4","5","6","7","8","9","00","0","←"].forEach(k=>{ const b=btn(k,"",()=>{ if(k==="←") d.amount=d.amount.slice(0,-1); else if(d.amount.length<6) d.amount=(d.amount+k).replace(/^0+/,""); render(); }); b.dataset.free="1"; pad.append(b); });
+    s.append(pad);
+    if(e.type==="dropoff"){ s.append(sub("支払い")); s.append(chips(PAY,"pay"));
+      s.append(sub("チップ（営収とは別）")); const c=document.createElement("div"); c.className="chips";
+      [0,100,200,300,500,1000].forEach(v=>{ const b=btn(v?fmtYen(v)+"円":"なし","",()=>{ d.tip=v; render(); }); b.dataset.free="1"; b.setAttribute("aria-pressed",String((d.tip||0)===v)); c.append(b); });
+      if(d.tip&&![100,200,300,500,1000].includes(d.tip)){ const b=btn(fmtYen(d.tip)+"円","",()=>{}); b.dataset.free="1"; b.setAttribute("aria-pressed","true"); c.append(b); }
+      s.append(c); }
+  }
+  if(e.type==="memo"){ s.append(sub("メモ")); const t=document.createElement("textarea"); t.value=d.note; t.addEventListener("input",()=>{ d.note=t.value; }); s.append(t); }
+  if(e.n!=null){ s.append(sub("台数")); const r=document.createElement("div"); r.style.cssText="display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center";
+    const b1=btn("−1","",()=>{ d.n=Math.max(0,(d.n||0)-1); render(); }), b2=btn("+1","",()=>{ d.n=(d.n||0)+1; render(); }); b1.dataset.free=b2.dataset.free="1";
+    const v=document.createElement("div"); v.style.cssText="font-size:30px;font-weight:700;text-align:center;min-width:80px"; v.textContent=d.n+"台"; r.append(b1,v,b2); s.append(r); }
+  // 保存・やめる・消す
+  const row=document.createElement("div"); row.className="grid";
+  const cancel=btn("やめる","ghost",close); cancel.dataset.free="1";
+  const ok=btn("直した内容を保存","vacant",async()=>{
+    const p={at:d.at};
+    if(e.type==="pickup"){ p.kind=d.kind; if(d.kind==="アプリ・迎車") p.app=d.app; }
+    if(e.type==="dispatch_accept"||e.type==="dispatch_arrive") p.app=d.app;
+    if(e.type==="dispatch_cancel"){ p.app=d.app; p.reason=d.reason; p.fee=d.amount?+d.amount:null; }
+    if(e.type==="dropoff"){ p.amount=d.amount?+d.amount:null; p.pay=d.pay; p.tip=d.tip||null; }
+    if(e.type==="memo"){ const v=d.note.trim(); if(!v){ toast("メモが空です",false); return; } p.note=v; }
+    if(e.n!=null) p.n=d.n;
+    try{ await S.db.collection("events").doc(e.id).update(p); toast("✓ 直しました"); close(); }catch(x){ showErr("直せませんでした（"+(x&&x.code||"不明")+"）。"); }
+  }); ok.dataset.free="1";
+  row.append(cancel,ok);
+  const armed=d.arm&&Date.now()-d.arm<5000;
+  const del=btn(armed?"もう一度押すと消します":"この記録を消す",armed?"cruise wide":"ghost wide",async()=>{
+    if(d.arm&&Date.now()-d.arm<5000){ try{ await S.db.collection("events").doc(e.id).delete(); toast("✓ 消しました"); close(); }catch(x){ showErr("消せませんでした。"); } return; }
+    d.arm=Date.now(); render(); setTimeout(()=>{ if(S.ed===d&&d.arm&&Date.now()-d.arm>=5000){ d.arm=0; render(); } },5100); });
+  del.dataset.free="1"; row.append(del);
+  s.append(row); return s;
+}
 function memoSheet(){
   const s=document.createElement("div"); s.className="sheet";
   const t=document.createElement("textarea"); t.id="memoText"; t.placeholder="例：中央大通の北側、縄張りの車あり。キーボードのマイクでも入れられます"; t.value=S.memo;
@@ -599,12 +666,9 @@ function renderLog(){
     let t=TYPE[e.type]||e.type; if(e.kind) t+="（"+e.kind+"）"; if(e.app) t+="［"+e.app+"］"; if(e.type==="stand_pos"||e.type==="wait_pos") t+="："+e.n+"台目"; if(e.type==="other_count") t+="（"+e.where+"）："+e.n+"台"; if(e.type==="stand_behind") t+="："+e.n+"台"; if(e.type==="dropoff") t+= e.amount ? "　"+fmtYen(e.amount)+"円"+(e.pay?"・"+e.pay:"") : "　金額なし（日報で入ります）"; if(e.type==="dispatch_cancel"){ if(e.reason) t+="・"+e.reason; if(e.waited!=null) t+="・待ち"+Math.floor(e.waited/60)+"分"+String(e.waited%60).padStart(2,"0")+"秒"; if(e.fee) t+="・キャンセル料"+fmtYen(e.fee)+"円"; } if(e.note) t+="："+e.note; if(e.lat==null) t+="（位置なし）";
     if(e.tip) t+="（チップ "+fmtYen(e.tip)+"円）";
     w.textContent=t; if(e.type==="dropoff"||e.type==="dispatch_cancel") w.classList.add("yen");
-    const del=btn("消す","ghost del",async()=>{ try{ await S.db.collection("events").doc(e.id).delete(); }catch(x){ showErr("消せませんでした。"); } });
-    del.dataset.free="1";
-    const box=document.createElement("div"); box.style.display="flex"; box.style.gap="6px";
-    if(e.type==="dropoff"){ const fix=btn("直す","ghost del",()=>{ S.editId=e.id; S.amount=String(e.amount||""); S.pay=e.pay||null; S.tip=e.tip||0; S.sheet="dropoff"; render(); window.scrollTo({top:0,behavior:"smooth"}); }); fix.dataset.free="1"; box.append(fix); }
-    box.append(del);
-    li.append(tm,w,box); ol.append(li);
+    const go=document.createElement("span"); go.className="go"; go.textContent="直す ›";
+    li.classList.add("tap"); li.addEventListener("click",()=>openEdit(e.id));
+    li.append(tm,w,go); ol.append(li);
   }
 }
 
