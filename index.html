@@ -57,6 +57,9 @@ ol.log li{font-size:17px;display:grid;grid-template-columns:56px minmax(0,1fr) a
 ol.log time{color:var(--muted);font-size:13px}
 ol.log .what{min-width:0;overflow-wrap:anywhere}
 ol.log li.tap{cursor:pointer}
+ol.log li.sel{background:var(--line)}
+ol.log li.edit{display:block;padding:0 0 12px}
+ol.log li.edit .sheet{margin:0}
 ol.log li.tap:active{background:var(--line)}
 ol.log .go{color:var(--muted);font-size:15px;white-space:nowrap}
 ol.log .del{min-height:44px;font-size:16px;padding:0 12px;border-radius:8px}
@@ -472,7 +475,6 @@ function render(){
   if(S.sheet==="dropoff") m.append(dropSheet());
   else if(S.sheet==="memo") m.append(memoSheet());
   else if(S.sheet==="cancel") m.append(cancelSheet());
-  else if(S.sheet==="edit") m.append(editSheet());
   else {
     const g=document.createElement("div"); g.className="grid";
     // 金額を飛ばした降車：停車中なら入れるよう促す（古い順に1件ずつ）
@@ -589,12 +591,12 @@ function openEdit(id){
   const e=S.events.find(x=>x.id===id); if(!e) return;
   if(moving()){ toast("止まってから直してください",false); return; }
   S.ed={id, at:e.at, kind:e.kind||null, app:e.app||null, amount:e.type==="dispatch_cancel"?String(e.fee||""):String(e.amount||""), pay:e.pay||null, tip:e.tip||0, reason:e.reason||null, note:e.note||"", n:e.n!=null?e.n:null, arm:0};
-  S.sheet="edit"; render(); window.scrollTo({top:0,behavior:"smooth"});
+  render();
 }
 function editSheet(){
   const s=document.createElement("div"); s.className="sheet";
   const e=S.events.find(x=>x.id===(S.ed&&S.ed.id)); const d=S.ed;
-  const close=()=>{ S.sheet=null; S.ed=null; render(); };
+  const close=()=>{ S.ed=null; render(); };
   if(!e){ setTimeout(close,0); return s; }
   const sub=t=>{ const h=document.createElement("div"); h.className="sub"; h.textContent=t; return h; };
   const chips=(list,key,toggle=true)=>{ const c=document.createElement("div"); c.className="chips";
@@ -669,8 +671,11 @@ function renderLog(){
     if(e.why) t+="（"+e.why+"へ）";
     w.textContent=t; if(e.type==="dropoff"||e.type==="dispatch_cancel") w.classList.add("yen");
     const go=document.createElement("span"); go.className="go"; go.textContent="直す ›";
-    li.classList.add("tap"); li.addEventListener("click",()=>openEdit(e.id));
+    const open=S.ed&&S.ed.id===e.id;
+    if(open){ go.textContent="閉じる ˄"; li.classList.add("sel"); }
+    li.classList.add("tap"); li.addEventListener("click",()=>{ if(S.ed&&S.ed.id===e.id){ S.ed=null; render(); } else openEdit(e.id); });
     li.append(tm,w,go); ol.append(li);
+    if(open){ const ed=document.createElement("li"); ed.className="edit"; ed.append(editSheet()); ol.append(ed); }
   }
 }
 
