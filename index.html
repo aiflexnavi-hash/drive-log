@@ -479,7 +479,7 @@ function render(){
     const g=document.createElement("div"); g.className="grid";
     // 金額を飛ばした降車：停車中なら入れるよう促す（古い順に1件ずつ）
     { const miss=S.events.filter(e=>e.type==="dropoff"&&!e.amount);
-      if(miss.length&&!moving()&&st!=="hired"){ const e0=miss[0]; const r=btn("金額が入っていない降車 "+miss.length+"件（"+hhmm(e0.at)+"〜）→ 入れる","wait wide",()=>{ S.editId=e0.id; S.amount=""; S.pay=e0.pay||null; S.tip=e0.tip||0; S.sheet="dropoff"; render(); window.scrollTo({top:0,behavior:"smooth"}); });
+      if(miss.length&&!moving()&&st!=="hired"){ const e0=miss[0]; const r=btn("金額が入っていない降車 "+miss.length+"件（"+hhmm(e0.at)+"〜）→ 入れる","wait wide",()=>{ S.editId=e0.id; S.amount=""; S.pay=e0.pay||null; S.tip=e0.tip||0; S.toll=e0.toll||0; S.sheet="dropoff"; render(); window.scrollTo({top:0,behavior:"smooth"}); });
         r.dataset.free="1"; r.style.cssText="min-height:64px;font-size:20px"; g.append(r); } }
     if(st==="off") g.append(btn("出庫","vacant wide",()=>record("shift_start")));
     if(st!=="off" && S.shift && (!S.shift.car||S.carEdit)){ const ch=document.createElement("div"); ch.className="chips"; ch.style.gridColumn="1/-1";
@@ -519,7 +519,7 @@ function render(){
       g.append(btn("お客さん乗車","hired",()=>record("pickup",{kind:"アプリ・迎車",app:acc&&acc.app||null})), btn("迎車キャンセル","",()=>{ S.sheet="cancel"; S.amount=""; S.reason=null; render(); }));
       if(st==="arrived"){ const arr=[...S.events].reverse().find(x=>x.type==="dispatch_arrive"); const tm=document.createElement("div"); tm.id="waitTimer"; tm.className="lock"; tm.style.gridColumn="1/-1"; tm.style.background="var(--panel)"; tm.style.color="var(--fg)"; tm.dataset.since=arr?arr.at:Date.now(); g.prepend(tm); }
     }
-    if(st==="hired"){ const d=btn("降車","vacant wide",()=>{ S.sheet="dropoff"; S.editId=null; S.amount=""; S.pay=null; S.tip=0; render(); }); d.dataset.free="1"; g.append(d); }
+    if(st==="hired"){ const d=btn("降車","vacant wide",()=>{ S.sheet="dropoff"; S.editId=null; S.amount=""; S.pay=null; S.tip=0; S.toll=0; render(); }); d.dataset.free="1"; g.append(d); }
     if(st!=="off"){
       g.append(btn("手上げ客を見た","small",()=>record("seen_hail")), btn("乗り場に客待ち","small",()=>record("seen_rank")));
       g.append(btn("空車 多い","small",()=>record("taxi_many")), btn("空車 少ない","small",()=>record("taxi_few")),
@@ -554,10 +554,13 @@ function dropSheet(){
     const TV=[0,100,200,300,500,1000];
     TV.forEach(v=>{ const b=btn(v?fmtYen(v):"なし","",()=>{ S.tip=v; render(); }); b.setAttribute("aria-pressed",String((S.tip||0)===v)); b.dataset.free="1"; tips.append(b); });
     const o=btn(S.tip&&!TV.includes(S.tip)?fmtYen(S.tip)+"円":"その他","",()=>{ const v=Number(String(prompt("チップ（円）",S.tip||"")||"").replace(/[^0-9]/g,"")); S.tip=v>0?v:0; render(); }); o.setAttribute("aria-pressed",String(!!S.tip&&!TV.includes(S.tip))); o.dataset.free="1"; tips.append(o); }
+  // 高速料金（お客さんからもらう実費。営収とは別に記録）
+  const toll=btn(S.toll?"高速料金 "+fmtYen(S.toll)+"円（押して直す）":"高速料金を入れる（あれば）","ghost wide",()=>{ const v=Number(String(prompt("高速料金（円）",S.toll||"")||"").replace(/[^0-9]/g,"")); S.toll=v>0?v:0; render(); });
+  toll.dataset.free="1"; toll.style.cssText="min-height:56px;font-size:18px"; tips.append(toll);
   const row=document.createElement("div"); row.className="grid";
   const ok=btn(S.editId?"金額を直す":"降車を記録","vacant",async()=>{ if(!S.amount) return;
-    if(S.editId){ try{ await S.db.collection("events").doc(S.editId).update({amount:+S.amount,pay:S.pay,tip:S.tip||null}); hideErr(); }catch(e){ showErr("直せませんでした（"+(e&&e.code||"不明")+"）。"); } S.editId=null; }
-    else await record("dropoff",{amount:+S.amount,pay:S.pay,tip:S.tip||null});
+    if(S.editId){ try{ await S.db.collection("events").doc(S.editId).update({amount:+S.amount,pay:S.pay,tip:S.tip||null,toll:S.toll||null}); hideErr(); }catch(e){ showErr("直せませんでした（"+(e&&e.code||"不明")+"）。"); } S.editId=null; }
+    else await record("dropoff",{amount:+S.amount,pay:S.pay,tip:S.tip||null,toll:S.toll||null});
     S.sheet=null; render(); });
   ok.dataset.free=S.editId?"1":"";
   ok.disabled=!S.amount;
@@ -590,7 +593,7 @@ function cancelSheet(){
 function openEdit(id){
   const e=S.events.find(x=>x.id===id); if(!e) return;
   if(moving()){ toast("止まってから直してください",false); return; }
-  S.ed={id, at:e.at, kind:e.kind||null, app:e.app||null, amount:e.type==="dispatch_cancel"?String(e.fee||""):String(e.amount||""), pay:e.pay||null, tip:e.tip||0, reason:e.reason||null, note:e.note||"", n:e.n!=null?e.n:null, arm:0};
+  S.ed={id, at:e.at, kind:e.kind||null, app:e.app||null, amount:e.type==="dispatch_cancel"?String(e.fee||""):String(e.amount||""), pay:e.pay||null, tip:e.tip||0, toll:e.toll||0, reason:e.reason||null, note:e.note||"", n:e.n!=null?e.n:null, arm:0};
   render();
 }
 function editSheet(){
@@ -622,7 +625,8 @@ function editSheet(){
       s.append(sub("チップ（営収とは別）")); const c=document.createElement("div"); c.className="chips";
       [0,100,200,300,500,1000].forEach(v=>{ const b=btn(v?fmtYen(v)+"円":"なし","",()=>{ d.tip=v; render(); }); b.dataset.free="1"; b.setAttribute("aria-pressed",String((d.tip||0)===v)); c.append(b); });
       if(d.tip&&![100,200,300,500,1000].includes(d.tip)){ const b=btn(fmtYen(d.tip)+"円","",()=>{}); b.dataset.free="1"; b.setAttribute("aria-pressed","true"); c.append(b); }
-      s.append(c); }
+      s.append(c);
+      const tb=btn(d.toll?"高速料金 "+fmtYen(d.toll)+"円（押して直す）":"高速料金を入れる（あれば）","ghost",()=>{ const v=Number(String(prompt("高速料金（円）",d.toll||"")||"").replace(/[^0-9]/g,"")); d.toll=v>0?v:0; render(); }); tb.dataset.free="1"; tb.style.cssText="min-height:52px;font-size:18px"; s.append(tb); }
   }
   if(e.type==="memo"){ s.append(sub("メモ")); const t=document.createElement("textarea"); t.value=d.note; t.addEventListener("input",()=>{ d.note=t.value; }); s.append(t); }
   if(e.n!=null){ s.append(sub("台数")); const r=document.createElement("div"); r.style.cssText="display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center";
@@ -636,7 +640,7 @@ function editSheet(){
     if(e.type==="pickup"){ p.kind=d.kind; if(d.kind==="アプリ・迎車") p.app=d.app; }
     if(e.type==="dispatch_accept"||e.type==="dispatch_arrive") p.app=d.app;
     if(e.type==="dispatch_cancel"){ p.app=d.app; p.reason=d.reason; p.fee=d.amount?+d.amount:null; }
-    if(e.type==="dropoff"){ p.amount=d.amount?+d.amount:null; p.pay=d.pay; p.tip=d.tip||null; }
+    if(e.type==="dropoff"){ p.amount=d.amount?+d.amount:null; p.pay=d.pay; p.tip=d.tip||null; p.toll=d.toll||null; }
     if(e.type==="memo"){ const v=d.note.trim(); if(!v){ toast("メモが空です",false); return; } p.note=v; }
     if(e.n!=null) p.n=d.n;
     try{ await S.db.collection("events").doc(e.id).update(p); toast("✓ 直しました"); close(); }catch(x){ showErr("直せませんでした（"+(x&&x.code||"不明")+"）。"); }
@@ -687,6 +691,7 @@ function renderLog(){
     const w=document.createElement("div"); w.className="what";
     let t=TYPE[e.type]||e.type; if(e.kind) t+="（"+e.kind+"）"; if(e.app) t+="［"+e.app+"］"; if(e.type==="stand_pos"||e.type==="wait_pos") t+="："+e.n+"台目"; if(e.type==="other_count") t+="（"+e.where+"）："+e.n+"台"; if(e.type==="stand_behind") t+="："+e.n+"台"; if(e.type==="dropoff") t+= e.amount ? "　"+fmtYen(e.amount)+"円"+(e.pay?"・"+e.pay:"") : "　金額なし（日報で入ります）"; if(e.type==="dispatch_cancel"){ if(e.reason) t+="・"+e.reason; if(e.waited!=null) t+="・待ち"+Math.floor(e.waited/60)+"分"+String(e.waited%60).padStart(2,"0")+"秒"; if(e.fee) t+="・キャンセル料"+fmtYen(e.fee)+"円"; } if(e.note) t+="："+e.note; if(e.lat==null) t+="（位置なし）";
     if(e.tip) t+="（チップ "+fmtYen(e.tip)+"円）";
+    if(e.toll) t+="（高速 "+fmtYen(e.toll)+"円）";
     if(e.why) t+="（"+e.why+"へ）";
     if(e.place) t+="　📍"+e.place;
     w.textContent=t; if(e.type==="dropoff"||e.type==="dispatch_cancel") w.classList.add("yen");
@@ -705,11 +710,11 @@ async function exportCsv(){
   if(!S.dl){ showErr("この画面からは書き出せません。Claude に「記録を出して」と頼んでください。"); return; }
   try{
     const snap=await S.db.collection("events").orderBy("at").get();
-    const rows=[["日時","曜日","種類","乗り方","アプリ","金額","キャンセル料","待ち秒","理由","支払い","メモ","緯度","経度","精度m","地名","乗務ID"]];
+    const rows=[["日時","曜日","種類","乗り方","アプリ","金額","キャンセル料","待ち秒","理由","支払い","メモ","緯度","経度","精度m","地名","チップ","高速料金","乗務ID"]];
     const wd="日月火水木金土";
     snap.docs.forEach(d=>{ const e=d.data(); const t=new Date(e.at);
       const ts=t.getFullYear()+"-"+String(t.getMonth()+1).padStart(2,"0")+"-"+String(t.getDate()).padStart(2,"0")+" "+String(t.getHours()).padStart(2,"0")+":"+String(t.getMinutes()).padStart(2,"0");
-      rows.push([ts,wd[t.getDay()],TYPE[e.type]||e.type,e.kind??"",e.app??"",e.amount??"",e.fee??"",e.waited??"",e.reason??"",e.pay??"",e.note??"",e.lat??"",e.lng??"",e.acc??"",e.place??"",e.shift??""]); });
+      rows.push([ts,wd[t.getDay()],TYPE[e.type]||e.type,e.kind??"",e.app??"",e.amount??"",e.fee??"",e.waited??"",e.reason??"",e.pay??"",e.note??"",e.lat??"",e.lng??"",e.acc??"",e.place??"",e.tip??"",e.toll??"",e.shift??""]); });
     const csv="﻿"+rows.map(r=>r.map(v=>{ v=String(v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }).join(",")).join("\n");
     const n=new Date(); const name=n.getFullYear()+String(n.getMonth()+1).padStart(2,"0")+String(n.getDate()).padStart(2,"0")+"-"+String(n.getHours()).padStart(2,"0")+String(n.getMinutes()).padStart(2,"0")+"-乗務記録.csv";
     await S.dl.save({filename:name,data:csv});
