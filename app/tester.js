@@ -27,14 +27,15 @@ window.TesterUI=(function(){
       el("p",{textContent:"このアプリはテスト版です。使う前に、次の内容をご確認ください。"}),
       (()=>{ const u=el("ul"); [
         "乗車・降車・待機などの時刻と位置、走った道、入力した金額は、開発者に送られます。アプリの改善と、個人が分からない形の統計に使います。",
-        "お名前・会社名・車番は集めません。メモ欄などに、お客様の情報（名前・電話・行き先の住所）は書かないでください。",
+        "お名前・車番は集めません。所属の会社名・営業所は、入れた場合だけ、同じ会社の人の設定を簡単にすること、営業区域の表示、会社や地域ごとの統計に使います（ほかの利用者に会社名と記録を結びつけて見せることはしません）。",
+        "メモ欄などに、お客様の情報（名前・電話・行き先の住所）は書かないでください。",
         "勤務先の決まりで、記録をアプリに残すことや外部に送ることが禁止されている場合は、使わないでください。",
         "運転中は操作しないでください。停車中に操作してください。",
         "テスト終了後に記録の削除を希望される場合は、クラウドワークスのメッセージでテスターIDを添えてお知らせください。"
       ].forEach(t=>u.append(el("li",{textContent:t}))); return u; })(),
       el("p",{textContent:"あなたのテスターID："+shortId(ctx.DEV)}));
     const ok=el("button",{textContent:"同意して始める"});
-    ok.onclick=()=>{ LS.set("consent",{v:1,at:Date.now()}); try{ ctx.write("consent",ctx.DEV,{v:1,at:Date.now(),app:C.ver||""}); }catch(e){} o.remove(); done&&done(); };
+    ok.onclick=()=>{ LS.set("consent",{v:2,at:Date.now()}); try{ ctx.write("consent",ctx.DEV,{v:2,at:Date.now(),app:C.ver||""}); }catch(e){} o.remove(); done&&done(); };
     b.append(ok);
   }
 
@@ -95,7 +96,7 @@ window.TesterUI=(function(){
       if(due&&!done) bar.style.borderColor="#ffb300";
     };
     draw(); wrap.prepend(bar);
-    if(!LS.get("consent",null)) consent(ctx);
+    { const cs=LS.get("consent",null); if(!cs||(cs.v||1)<2) consent(ctx); }
   }
   return {mount};
 })();
