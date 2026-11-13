@@ -9,13 +9,19 @@ window.NO_CHAT=true;   // 雑談の相談はアプリに入れない
              set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} } };
 
   /* 設定：リンクの #u=<デプロイID>&k=<合言葉> */
+  /* テスター版（Android アプリ）：保存先はアプリに入っている（window.APP_CFG）。記録は端末ごとに分けて送る */
+  const TESTER=window.APP_CFG&&window.APP_CFG.tester?window.APP_CFG:null;
   const h=new URLSearchParams(location.hash.slice(1));
-  if(h.get("u")&&h.get("k")){ LS.set("cfg",{u:h.get("u"),k:h.get("k")}); history.replaceState(null,"",location.pathname); }
-  const CFG=LS.get("cfg",null);
+  if(!TESTER&&h.get("u")&&h.get("k")){ LS.set("cfg",{u:h.get("u"),k:h.get("k")}); history.replaceState(null,"",location.pathname); }
+  const CFG=TESTER?(TESTER.u?{u:TESTER.u}:null):LS.get("cfg",null);
+  let DEV=LS.get("dev",null);
+  if(TESTER&&!DEV){ DEV=(Date.now().toString(36)+Math.random().toString(36).slice(2,12)).replace(/[^a-z0-9]/g,"").slice(0,24); LS.set("dev",DEV); }
+  window.APP_DEV=DEV;
   const API=CFG?"https://script.google.com/macros/s/"+CFG.u+"/exec":null;
   async function call(body){
     if(!API) throw {code:"no_cfg"};
-    const r=await fetch(API,{method:"POST",body:JSON.stringify({token:CFG.k,...body})});
+    const auth=TESTER?{tester:TESTER.tester,dev:DEV,ua:navigator.userAgent}:{token:CFG.k};
+    const r=await fetch(API,{method:"POST",body:JSON.stringify({...auth,...body})});
     const j=await r.json(); if(!j.ok) throw {code:j.error||"error"}; return j;
   }
 
@@ -155,7 +161,7 @@ window.NO_CHAT=true;   // 雑談の相談はアプリに入れない
 
   window.claude={ use:async name=>{
     if(name==="sample") return API&&aiOn?sample:null;
-    if(name==="db") return API?db:null;
+    if(name==="db") return (API||TESTER)?db:null;
     if(name==="downloads") return downloads;
     if(name==="tts") return makeTts();
     return null;
@@ -184,8 +190,9 @@ window.NO_CHAT=true;   // 雑談の相談はアプリに入れない
       const p=document.createElement("p"); p.className="note"; p.style.fontSize="17px"; p.textContent="Claude 内のアプリから書き出したファイル（.json）を選ぶと、記録と日報をこちらに移します。同じものは二重に入りません。";
       const f=document.createElement("input"); f.type="file"; f.accept=".json,application/json"; f.style.fontSize="17px";
       f.addEventListener("change",()=>{ if(f.files[0]) importFile(f.files[0]); f.value=""; });
-      box.append(sm,p,f); wrap.append(box);
-      if(!API){ const w=document.createElement("p"); w.className="err"; w.style.fontSize="18px"; w.textContent="送られてきたリンクから開き直してください（保存先の情報がリンクに入っています）。"; wrap.prepend(w); }
+      if(!TESTER){ box.append(sm,p,f); wrap.append(box); }
+      if(TESTER&&window.TesterUI) window.TesterUI.mount(wrap,{write,store,DEV});
+      if(!API&&!TESTER){ const w=document.createElement("p"); w.className="err"; w.style.fontSize="18px"; w.textContent="送られてきたリンクから開き直してください（保存先の情報がリンクに入っています）。"; wrap.prepend(w); }
     }
     if("serviceWorker" in navigator){ /* なし：常に最新を読む */ }
   });

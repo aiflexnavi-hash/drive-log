@@ -1,0 +1,7 @@
+{
+  "appId": "net.minnavi.driver",
+  "appName": "乗務記録テスト",
+  "webDir": "www",
+  "android": { "allowMixedContent": false },
+  "server": { "androidScheme": "https" }
+}

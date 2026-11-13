@@ -1,0 +1,14 @@
+{
+  "name": "driver-log-app",
+  "private": true,
+  "version": "0.1.0",
+  "description": "乗務記録 Android アプリ（テスト版）。画面はウェブ版と同じ index.html / shim.js を使う",
+  "scripts": { "www": "node build-www.js" },
+  "dependencies": {
+    "@capacitor/android": "8.4.3",
+    "@capacitor/core": "8.4.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.4.3"
+  }
+}
