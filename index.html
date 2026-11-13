@@ -615,6 +615,39 @@ function openEdit(id){
   S.ed={id, at:e.at, kind:e.kind||null, app:e.app||null, amount:e.type==="dispatch_cancel"?String(e.fee||""):String(e.amount||""), pay:e.pay||null, tip:e.tip||0, toll:e.toll||0, pax:e.pax||null, reason:e.reason||null, note:e.note||"", n:e.n!=null?e.n:null, arm:0};
   render();
 }
+/* 位置の後入れ：住所（国土地理院の住所検索）か、地図の真ん中で選ぶ */
+async function locByAddress(d){
+  const q=String(prompt("住所や場所（例：大阪市北区梅田3丁目、四條畷市岡山）","")||"").trim(); if(!q) return;
+  if(navigator.onLine===false){ toast("電波がないので探せません",false); return; }
+  try{ const r=await fetch("https://msearch.gsi.go.jp/address-search/AddressSearch?q="+encodeURIComponent(q)); const j=await r.json();
+    const f=Array.isArray(j)&&j[0]; if(!f||!f.geometry){ toast("見つかりませんでした。地図で選んでください",false); return; }
+    const [lng,lat]=f.geometry.coordinates; d.lat=+lat; d.lng=+lng; d.place=null;
+    try{ d.place=await plName(d.lat,d.lng)||null; }catch(x){}
+    toast("✓ "+(d.place||f.properties&&f.properties.title||"場所")+"。よければ「直した内容を保存」"); render();
+  }catch(x){ toast("探せませんでした。地図で選んでください",false); }
+}
+async function locByMap(d,e){
+  try{ await loadLeaflet(); }catch(x){ toast("地図を読めませんでした（電波を確認）",false); return; }
+  // はじめの位置：この記録 → 前後の記録で位置のあるもの → 今の位置 → 大阪駅
+  let c=d.lat!=null?[d.lat,d.lng]:(e.lat!=null?[e.lat,e.lng]:null);
+  if(!c){ const near=S.events.filter(x=>x.lat!=null).sort((a,b)=>Math.abs(a.at-e.at)-Math.abs(b.at-e.at))[0]; if(near) c=[near.lat,near.lng]; }
+  if(!c&&S.pos) c=[S.pos.lat,S.pos.lng];
+  if(!c) c=[34.7025,135.4959];
+  const ov=document.createElement("div"); ov.id="locOv"; ov.style.cssText="position:fixed;inset:0;z-index:4600;background:var(--bg);display:flex;flex-direction:column;padding-top:var(--sat,0px)";
+  const hd=mk("div","padding:10px 14px;font-size:17px","地図を動かして、真ん中の＋を場所に合わせてください");
+  const wrap=mk("div","position:relative;flex:1"); const el=mk("div","position:absolute;inset:0"); wrap.append(el);
+  const cross=mk("div","position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:44px;line-height:1;color:#e53935;pointer-events:none;z-index:1000;text-shadow:0 0 3px #fff","＋"); wrap.append(cross);
+  const ft=mk("div","display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:10px 14px calc(10px + env(safe-area-inset-bottom,0px))");
+  const cc=btn("やめる","ghost",()=>{ try{ m.remove(); }catch(x){} ov.remove(); });
+  const ok=btn("ここにする","vacant",async()=>{ const p=m.getCenter(); d.lat=+p.lat.toFixed(6); d.lng=+p.lng.toFixed(6); d.place=null; try{ m.remove(); }catch(x){} ov.remove();
+    try{ d.place=await plName(d.lat,d.lng)||null; }catch(x){}
+    toast("✓ "+(d.place||"場所を選びました")+"。よければ「直した内容を保存」"); render(); });
+  cc.dataset.free=ok.dataset.free="1"; ft.append(cc,ok);
+  ov.append(hd,wrap,ft); document.body.append(ov);
+  const m=L.map(el,{zoomControl:true}).setView(c,16);
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:18,attribution:"© OpenStreetMap"}).addTo(m);
+  setTimeout(()=>m.invalidateSize(),100);
+}
 function editSheet(){
   const s=document.createElement("div"); s.className="sheet";
   const e=S.events.find(x=>x.id===(S.ed&&S.ed.id)); const d=S.ed;
@@ -630,6 +663,14 @@ function editSheet(){
     const mv=m=>{ const b=btn((m>0?"+":"−")+Math.abs(m)+"分","",()=>{ const t=d.at+m*60000; if(t>Date.now()+60000){ toast("今より後にはできません",false); return; } d.at=t; render(); }); b.dataset.free="1"; b.style.cssText="min-height:56px;font-size:16px;padding:0 2px;white-space:nowrap"; return b; };
     const t=document.createElement("div"); t.style.cssText="font-size:30px;font-weight:700;text-align:center;padding:0 6px"; t.textContent=hhmm(d.at);
     r.append(mv(-5),mv(-1),t,mv(1),mv(5)); s.append(r); }
+  // 場所
+  { s.append(sub("場所"));
+    const has=d.lat!=null||e.lat!=null;
+    const cur=d.lat!=null?(d.place||"選んだ場所（地名は保存のあとに出ます）"):(e.lat!=null?(e.place||"位置あり（地名はまだ）"):"位置なし");
+    s.append(mk("div","font-size:18px;margin:2px 0 6px",(has?"📍 ":"")+cur));
+    const r=document.createElement("div"); r.className="grid";
+    const ab=btn("住所で入れる","ghost",()=>locByAddress(d)); const mb=btn("地図で選ぶ","ghost",()=>locByMap(d,e)); ab.dataset.free=mb.dataset.free="1";
+    r.append(ab,mb); s.append(r); }
   // 種類ごとの中身
   if(e.type==="pickup") { s.append(sub("乗り方")); s.append(chips(["手上げ","乗り場","付け待ち","アプリ・迎車"],"kind",false)); }
   if(e.type==="pickup"&&d.kind==="アプリ・迎車"||e.type==="dispatch_accept"||e.type==="dispatch_arrive"||e.type==="dispatch_cancel"){ s.append(sub("アプリ")); s.append(chips(useOrder("app",APPS),"app")); }
@@ -663,6 +704,8 @@ function editSheet(){
     if(e.type==="dropoff"){ p.amount=d.amount?+d.amount:null; p.pay=d.pay; p.tip=d.tip||null; p.toll=d.toll||null; p.pax=d.pax||null; }
     if(e.type==="memo"){ const v=d.note.trim(); if(!v){ toast("メモが空です",false); return; } p.note=v; }
     if(e.n!=null) p.n=d.n;
+    if(d.lat!=null){ p.lat=d.lat; p.lng=d.lng; p.acc=null; p.loc="手入力"; p.place=d.place||null;
+      if(!p.place){ try{ p.place=await plName(d.lat,d.lng)||null; }catch(x){} } }
     try{ await S.db.collection("events").doc(e.id).update(p); toast("✓ 直しました"); close(); }catch(x){ showErr("直せませんでした（"+(x&&x.code||"不明")+"）。"); }
   }); ok.dataset.free="1";
   row.append(cancel,ok);
@@ -895,14 +938,25 @@ async function dayData(){
   try{ evs=(await S.db.collection("events").get()).docs.map(d=>d.data()); }catch(e){}
   // アプリのキャンペーン報酬など（営収とは別・個人に入る）。日付ごとに分けて持つ
   V.extras={}; try{ (await S.db.collection("extras").get()).docs.forEach(d=>{ const x={id:d.id,...d.data()}; if(x.date) (V.extras[x.date]=V.extras[x.date]||[]).push(x); }); }catch(e){}
+  const kmLater=[];
   const days={}, add=(k,o)=>{ (days[k]=days[k]||[]).push(o); }, have=new Set(reps.map(r=>r.id));
   reps.forEach(r=>{ if(!r.date) return; const t=r.total!=null?Number(r.total)||0:(r.rides||[]).reduce((a,x)=>a+(Number(x.fare)||0),0);
-    add(r.date,{id:r.id,inc:t,ex:r.total_ex||Math.round(t/1.1),rides:r.count!=null?r.count:(r.rides||[]).length,hours:r.hours||null,start:r.start||null,end:r.end||null,rep:true}); });
+    add(r.date,{id:r.id,km:Number(r.km)||0,hk:Number(r.km_hired)||0,hkBase:r.km_hired?Number(r.km)||0:0,inc:t,ex:r.total_ex||Math.round(t/1.1),rides:r.count!=null?r.count:(r.rides||[]).length,hours:r.hours||null,start:r.start||null,end:r.end||null,rep:true}); });
   shifts.forEach(sh=>{ if(!sh.start||have.has(sh.id)) return; const my=evs.filter(e=>e.shift===sh.id), rd=my.filter(e=>e.type==="dropoff");
     const t=rd.reduce((a,e)=>a+(Number(e.amount)||0),0), fee=my.filter(e=>e.type==="dispatch_cancel").reduce((a,e)=>a+(Number(e.fee)||0),0)+rd.reduce((a,e)=>a+(Number(e.tip)||0),0);
-    add(ymd(new Date(sh.start)),{id:sh.id,inc:t,fee,ex:Math.round(t/1.1),rides:rd.length,hours:sh.end?(sh.end-sh.start)/3600000:null,start:hhmm(sh.start),end:sh.end?hhmm(sh.end):null,live:!sh.end,rep:false}); });
-  V.data=days; V.dataAt=Date.now(); return days; }
-function monthSum(p,days){ let inc=0,ex=0,n=0,hrs=0,fee=0,exp=0; Object.keys(V.extras||{}).forEach(k=>{ if(k>=p.from&&k<=p.to) V.extras[k].forEach(x=>{ if(x.kind==="expense") exp+=Number(x.amount)||0; else fee+=Number(x.amount)||0; }); }); Object.keys(days).forEach(k=>{ if(k<p.from||k>p.to) return; days[k].forEach(x=>{ inc+=x.inc; fee+=x.fee||0; ex+=x.ex; if(x.inc>0||x.rep) n++; if(x.hours) hrs+=x.hours; }); }); return {inc,ex,n,hrs,fee,exp}; }
+    const odo=(sh.odoStart!=null&&sh.odoEnd!=null&&sh.odoEnd>sh.odoStart)?sh.odoEnd-sh.odoStart:null;
+    if(sh.end&&sh.kmApp==null) kmLater.push(sh.id);
+    add(ymd(new Date(sh.start)),{id:sh.id,km:odo!=null?odo:(Number(sh.kmApp)||0),hk:Number(sh.kmHiredApp)||0,hkBase:sh.kmHiredApp!=null?Number(sh.kmApp)||0:0,inc:t,fee,ex:Math.round(t/1.1),rides:rd.length,hours:sh.end?(sh.end-sh.start)/3600000:null,start:hhmm(sh.start),end:sh.end?hhmm(sh.end):null,live:!sh.end,rep:false}); });
+  V.data=days; V.dataAt=Date.now();
+  // 走行距離：メーターが入っていればメーター、なければアプリの位置から出した目安を乗務に1回だけ保存しておく
+  if(kmLater.length&&!V.kmBusy){ V.kmBusy=true; (async()=>{ let any=false; for(const id of kmLater.slice(0,5)){ try{ const k=await trackKm(id); await S.db.collection("shifts").doc(id).update({kmApp:Math.round(k.km*10)/10,kmHiredApp:Math.round(k.hk*10)/10}); any=true; }catch(e){} } V.kmBusy=false; if(any){ V.dataAt=0; viewRefresh(); } })(); }
+  return days; }
+async function trackKm(id){ const pts=[]; (await S.db.collection("tracks").where("shift","==",id).get()).docs.forEach(d=>{ (d.data().pts||[]).forEach(x=>pts.push(x)); }); pts.sort((a,b)=>a[0]-b[0]);
+  const hired=[]; let on=null; try{ (await S.db.collection("events").where("shift","==",id).get()).docs.map(d=>d.data()).sort((a,b)=>a.at-b.at).forEach(e=>{ if(e.type==="pickup") on=e.at; if(e.type==="dropoff"&&on){ hired.push([on,e.at]); on=null; } }); }catch(e){}
+  let km=0, hk=0; const R=6371, rad=x=>x*Math.PI/180;
+  for(let i=1;i<pts.length;i++){ const a=pts[i-1], b=pts[i]; if(b[0]-a[0]>600000) continue; const dl=rad(b[1]-a[1]), dg=rad(b[2]-a[2]); const h=Math.sin(dl/2)**2+Math.cos(rad(a[1]))*Math.cos(rad(b[1]))*Math.sin(dg/2)**2; const d=2*R*Math.asin(Math.sqrt(h)); if(d<=5){ km+=d; if(hired.some(([s0,e0])=>a[0]>=s0&&b[0]<=e0)) hk+=d; } }
+  return {km,hk}; }
+function monthSum(p,days){ let inc=0,ex=0,n=0,hrs=0,fee=0,exp=0,km=0,hk=0,hb=0,lit=0,fuelYen=0; Object.keys(V.extras||{}).forEach(k=>{ if(k>=p.from&&k<=p.to) V.extras[k].forEach(x=>{ if(x.kind==="expense"){ exp+=Number(x.amount)||0; if(x.liters){ lit+=Number(x.liters)||0; fuelYen+=Number(x.amount)||0; } } else fee+=Number(x.amount)||0; }); }); Object.keys(days).forEach(k=>{ if(k<p.from||k>p.to) return; days[k].forEach(x=>{ inc+=x.inc; fee+=x.fee||0; ex+=x.ex; if(x.inc>0||x.rep) n++; if(x.hours) hrs+=x.hours; km+=x.km||0; hk+=x.hk||0; hb+=x.hkBase||0; }); }); return {inc,ex,n,hrs,fee,exp,km,hk,hb,lit,fuelYen}; }
 function kv(box,k,v,yen,color){ const r=mk("div",null,null,"kv"); const a=mk("span",null,k), b=mk("b",color?"color:"+color:null,v); if(yen) b.className="yv"; r.append(a,b); box.append(r); return r; }
 function goShift(id){ N.pick=id; setView("after"); setTimeout(()=>{ try{ nipRender(); nipShowSaved(id); }catch(e){} },300); }
 async function homeRender(){
@@ -932,7 +986,13 @@ async function homeRender(){
     c.append(mk("h3",null,p.label));
     kv(c,"営収（税込）・"+m.n+"乗務",fmtYen(m.inc)+"円",true);
     if(m.hrs>0.5) kv(c,"営収/h",fmtYen(Math.round(m.inc/m.hrs))+"円",true);
-    if(set.indiv){ kv(c,"経費",fmtYen(m.exp)+"円",true); kv(c,"手元に残る額（営収＋キャンセル代等−経費）",fmtYen(m.inc+m.fee-m.exp)+"円",true,"var(--vacant)"); }
+    if(m.hb>=1) kv(c,"実車率（走った距離のうち、お客さんを乗せていた割合）",Math.round(m.hk/m.hb*100)+"%（空車 約"+fmtYen(Math.round(m.hb-m.hk))+" km）");
+    if(set.indiv){ kv(c,"経費",fmtYen(m.exp)+"円",true); kv(c,"手元に残る額（営収＋キャンセル代等−経費）",fmtYen(m.inc+m.fee-m.exp)+"円",true,"var(--vacant)");
+      if(m.km>=1){ kv(c,"走行距離（メーター、なければアプリの目安）","約 "+fmtYen(Math.round(m.km))+" km");
+        if(m.exp>0) kv(c,"1kmあたりの経費（経費÷走行距離）",(Math.round(m.exp/m.km*10)/10).toLocaleString("ja-JP")+"円",true);
+        if(m.lit>0){ kv(c,"燃費の目安（走行距離÷給油量）",(Math.round(m.km/m.lit*10)/10)+" km/L"); kv(c,"燃料1Lあたり",(Math.round(m.fuelYen/m.lit*10)/10).toLocaleString("ja-JP")+"円",true); }
+        kv(c,"1kmあたりの営収",(Math.round(m.inc/m.km*10)/10).toLocaleString("ja-JP")+"円",true); }
+      const eb=btn("経費を入れる（燃料など）","ghost wide",()=>{ V.calDay=today; V.expDay=today; V.expCat=null; setView("cal"); setTimeout(()=>{ const x=[...document.querySelectorAll("#vCal button")].find(b=>b.textContent==="経費を保存"); if(x) x.scrollIntoView({behavior:"smooth",block:"center"}); },700); }); eb.dataset.free="1"; eb.style.cssText="width:100%;margin-top:8px;min-height:52px;font-size:17px"; c.append(eb); }
     if(!set.indiv&&N.ashi){ const left=N.ashi-m.ex; kv(c,left>0?"足切り（税抜 "+fmtYen(N.ashi)+"円）まで":"足切り",left>0?"あと "+fmtYen(left)+"円":"クリア",true,left>0?null:"var(--vacant)"); }
     const rate=(N.ashi&&m.ex<N.ashi&&N.ashiRate)?N.ashiRate:(N.rate||set.rate||0.6);
     if(!set.indiv) kv(c,"歩合の見込み（"+Math.round(rate*100)+"%）",fmtYen(Math.round(m.ex*rate))+"円",true);
@@ -1045,7 +1105,7 @@ async function calRender(){
       else { const f=btn(rp?"この日の日報を直す":"この日の日報を入れる（営収・回数・時間）","vacant",()=>{ V.formDay=k; calRender(); }); f.dataset.free="1"; f.style.cssText="width:100%;margin-top:8px;min-height:64px;font-size:20px"; c.append(f); } }
     { const xs=(V.extras&&V.extras[k])||[]; const xb=mk("div","margin-top:10px");
       xs.forEach(x=>{ const r=mk("div","display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;padding:4px 0;border-bottom:1px solid var(--line)");
-        const a=mk("span",null,(x.kind==="expense"?"経費"+(x.cat?"［"+x.cat+"］":""):"キャンセル代等"+(x.app?"［"+x.app+"］":""))+" "); a.append(mk("b",null,fmtYen(Number(x.amount)||0)+"円","yv"));
+        const a=mk("span",null,(x.kind==="expense"?"経費"+(x.cat?"［"+x.cat+"］":""):"キャンセル代等"+(x.app?"［"+x.app+"］":""))+" "); a.append(mk("b",null,fmtYen(Number(x.amount)||0)+"円","yv")); if(x.liters) a.append(mk("span",null,"・"+x.liters+"L"));
         const d=btn("消す","ghost",async()=>{ if(d.dataset.arm!=="1"){ d.dataset.arm="1"; d.textContent="もう一度で消す"; return; } try{ await S.db.collection("extras").doc(x.id).delete(); V.dataAt=0; calRender(); }catch(e){ toast("消せませんでした",false); } });
         d.dataset.free="1"; d.style.cssText="min-height:44px;font-size:16px;padding:0 10px"; r.append(a,d); xb.append(r); });
       if(V.campDay===k){ const w=mk("div","display:flex;flex-direction:column;gap:8px;margin-top:8px"); let app=null;
@@ -1060,10 +1120,12 @@ async function calRender(){
         if(V.expDay===k){ const w=mk("div","display:flex;flex-direction:column;gap:8px;margin-top:8px"); let cat=V.expCat||null;
           const ch=mk("div",null,null,"chips"); ["燃料","配車アプリ手数料","無線・組合費","保険","車両・整備","洗車","その他"].forEach(a=>{ const b=btn(a,"",()=>{ V.expCat=a; calRender(); }); b.dataset.free="1"; b.setAttribute("aria-pressed",String(cat===a)); ch.append(b); });
           const i=document.createElement("input"); i.type="number"; i.inputMode="numeric"; i.placeholder="金額（円）"; i.style.cssText="font-size:22px;padding:8px;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:10px";
+          const li=document.createElement("input"); li.type="number"; li.inputMode="decimal"; li.step="0.01"; li.placeholder="給油量（リットル）"; li.style.cssText=i.style.cssText; li.hidden=cat!=="燃料";
           const ok=btn("経費を保存","vacant",async()=>{ const v=Number(String(i.value).replace(/[^0-9]/g,"")); if(!(v>0)){ toast("金額を入れてください",false); return; }
-            try{ await S.db.collection("extras").add({date:k,kind:"expense",cat,amount:v,at:Date.now()}); toast("✓ 経費を保存しました"); V.expDay=null; V.expCat=null; V.dataAt=0; G.monthFor=null; calRender(); }catch(e){ toast("保存できませんでした",false); } });
+            const L=cat==="燃料"?Number(String(li.value).replace(/[^0-9.]/g,""))||null:null;
+            try{ await S.db.collection("extras").add({date:k,kind:"expense",cat,amount:v,...(L?{liters:L}:{}),at:Date.now()}); toast("✓ 経費を保存しました"); V.expDay=null; V.expCat=null; V.dataAt=0; G.monthFor=null; calRender(); }catch(e){ toast("保存できませんでした",false); } });
           const cc=btn("やめる","ghost",()=>{ V.expDay=null; V.expCat=null; calRender(); }); ok.dataset.free="1"; cc.dataset.free="1";
-          w.append(mk("div","font-weight:700","経費（個人タクシー）"),ch,i,ok,cc); xb.append(w); }
+          w.append(mk("div","font-weight:700","経費（個人タクシー）"),ch,i,li,ok,cc); xb.append(w); }
         else { const b=btn("経費を入れる（燃料など）","ghost",()=>{ V.expDay=k; V.expCat=null; calRender(); }); b.dataset.free="1"; b.style.cssText="width:100%;margin-top:8px;min-height:52px;font-size:17px"; xb.append(b); } }
       c.append(xb); }
     if(k>=today||!ds.length){ const on=wd.has(k); const u=btn(on?"出番から外す":"この日を出番にする","ghost",async()=>{ const s2=new Set((G.set&&G.set.workDays)||[]); if(on) s2.delete(k); else s2.add(k);
