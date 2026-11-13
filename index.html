@@ -419,7 +419,7 @@ function setupOpen(only){
         const c=chips(AR,st.area,x=>x,x=>st.area=x);
         const o=btn(st.area&&!AR.includes(st.area)?"その他："+st.area:"その他","",()=>{ const v=String(prompt("営業区域（例：北摂交通圏）",st.area||"")||"").trim().slice(0,40); if(v){ st.area=v; draw(); } }); o.dataset.free="1"; o.setAttribute("aria-pressed",String(!!st.area&&!AR.includes(st.area))); c.append(o);
       }
-      if(!st.indiv) h("所属会社・営業所","同じ会社の人の設定を、次からかんたんに出せるようにするために使います（ほかの人に名前は出しません）");
+      if(!st.indiv) h("所属会社・営業所","営業区域の表示に使います。同じ会社の人の設定も、次からかんたんに出せます（ほかの人に名前は出しません）");
       if(!st.indiv){ const c=document.createElement("div"); c.className="chips";
         const ask=(label,key,ph)=>{ const b=btn(st[key]?label+"："+st[key]:label+"を入れる","",()=>{ const v=String(prompt(label+"（"+ph+"）",st[key]||"")||"").trim().slice(0,40); st[key]=v; draw(); }); b.dataset.free="1"; b.setAttribute("aria-pressed",String(!!st[key])); c.append(b); };
         ask("会社","co","例：〇〇交通"); ask("営業所","of","例：本社営業所"); bx.append(c); }
