@@ -733,6 +733,28 @@ async function homeRender(){
     ps.hidden=false; c.append(ps); paySetRender();
     box.append(c); }
 }
+// カレンダーの日から、その日の日報（合計だけ）を手で入れる・直す
+function dayForm(k,rp,ap){
+  const w=mk("div","margin-top:10px;display:flex;flex-direction:column;gap:8px");
+  const row=(lab,type,val,ph)=>{ const l=mk("label","display:grid;grid-template-columns:7em 1fr;gap:8px;align-items:center;font-size:19px"); const i=document.createElement("input"); i.type=type; if(type==="number") i.inputMode="numeric"; i.value=val==null?"":val; if(ph) i.placeholder=ph; i.style.cssText="font-size:22px;padding:8px;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:10px;min-width:0"; l.append(mk("span",null,lab),i); w.append(l); return i; };
+  const src=rp||ap||{};
+  const tot=row("営収（税込）","number",src.inc||"","例 52000");
+  const cnt=row("乗車回数","number",src.rides||"","例 25");
+  const st=row("出庫","time",src.start||"");
+  const en=row("入庫","time",src.end||"");
+  const err=mk("div","font-size:16px",null,"err");
+  const ok=btn("保存する","vacant",async()=>{
+    const t=Number(String(tot.value).replace(/[^0-9]/g,"")), n=Number(String(cnt.value).replace(/[^0-9]/g,""))||null;
+    if(!(t>0)){ err.textContent="営収を入れてください"; return; }
+    let hours=null; const a=toMin(st.value), b=toMin(en.value); if(a!=null&&b!=null){ let d=b-a; if(d<=0) d+=1440; hours=Math.round(d/6)/10; }
+    const id=rp?rp.id:ap?ap.id:"past-"+k.replace(/-/g,"");
+    try{ const ref=S.db.collection("reports").doc(id); const old=await ref.get(); const x=old.exists?old.data():{};
+      await ref.set({...x,date:k,total:t,total_ex:Math.round(t/1.1),count:n,start:st.value||null,end:en.value||null,hours,src:x.src||"manual"});
+      toast("✓ "+mdk(k)+" の日報を保存しました"); V.formDay=null; V.dataAt=0; G.monthFor=null; calRender(); }catch(e){ err.textContent="保存できませんでした。電波のあるところでもう一度押してください"; } });
+  ok.dataset.free="1"; ok.style.width="100%";
+  const cc=btn("やめる","ghost",()=>{ V.formDay=null; calRender(); }); cc.dataset.free="1"; cc.style.width="100%";
+  w.append(err,ok,cc,mk("div","font-size:15px","合計だけで、今月度の累計・足切りまでの残り・カレンダーに入ります。","note"));
+  return w; }
 async function calRender(){
   const box=$("vCal"); if(!box) return;
   if(!S.db){ box.replaceChildren(mk("p","font-size:19px","読み込み中…","note")); return; }
@@ -770,6 +792,9 @@ async function calRender(){
       kv(t,"営収",fmtYen(x.inc)+"円",true); kv(t,"乗車",x.rides+"回");
       if(x.hours>0.2) kv(t,"営収/h",fmtYen(Math.round(x.inc/x.hours))+"円",true);
       const b=btn("この日の日報・走った道を見る","ghost",()=>goShift(x.id)); b.dataset.free="1"; b.style.cssText="width:100%;margin-top:8px"; t.append(b); c.append(t); });
+    if(k<=today&&!ds.some(x=>x.live)){ const rp=ds.find(x=>x.rep), ap=ds.find(x=>!x.rep);
+      if(V.formDay===k) c.append(dayForm(k,rp,ap));
+      else { const f=btn(rp?"この日の日報を直す":"この日の日報を入れる（営収・回数・時間）","vacant",()=>{ V.formDay=k; calRender(); }); f.dataset.free="1"; f.style.cssText="width:100%;margin-top:8px;min-height:64px;font-size:20px"; c.append(f); } }
     if(k>=today||!ds.length){ const on=wd.has(k); const u=btn(on?"出番から外す":"この日を出番にする","ghost",async()=>{ const s2=new Set((G.set&&G.set.workDays)||[]); if(on) s2.delete(k); else s2.add(k);
         try{ await settingsPatch({workDays:[...s2].sort()}); toast(on?"✓ 出番から外しました":"✓ 出番にしました"); G.monthFor=null; calRender(); }catch(e){ toast("保存できませんでした",false); } });
       u.dataset.free="1"; u.style.cssText="width:100%;margin-top:8px"; c.append(u); }
@@ -1219,7 +1244,7 @@ function watchShift(){
     if(db){ S.db=db; clearTimeout(timer); watchShift(); goalLoad(); }
     if(db){ const lim= sm ? await sm.limits().catch(()=>null) : null; N.limits=lim&&lim.images; $("nippo").hidden=false; $("afterEmpty").remove();
       if(N.limits){ $("nipFile").accept=(N.limits.mediaTypes||["image/*"]).join(","); $("nipBtn").dataset.free="1"; $("nipBtn").addEventListener("click",()=>$("nipFile").click()); $("nipFile").addEventListener("change",e=>nipRead(e.target.files)); $("camBtn").dataset.free="1"; $("camBtn").addEventListener("click",()=>$("nipCam").click()); $("nipCam").addEventListener("change",e=>{ const f=e.target.files&&e.target.files[0]; if(f){ N.cam.push(f); } e.target.value=""; camRender(); }); }
-      else { $("camBtn").hidden=true; $("nipBtn").hidden=true; $("nipNote").textContent="日報の写真読み取りは、スマホの中だけで動く方式に作り替え中です（通信料・利用料がかからない方式）。今は記録からのまとめと、過去の日報が見られます。"; }
+      else { $("camBtn").hidden=true; $("nipBtn").hidden=true; $("nipNote").textContent="日報の写真読み取りは、スマホの中だけで動く方式に作り替え中です（通信料・利用料がかからない方式）。今は記録からのまとめと、過去の日報が見られます。過去の日の日報（営収・回数・時間）は「カレンダー」で日を押すと手で入れられます。"; }
       nipLoad(); }
   }catch(e){}
 })();
