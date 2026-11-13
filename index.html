@@ -535,7 +535,7 @@ function render(){
     m.append(g);
   }
   if($("chatIn")){ $("chatIn").disabled=lock; $("chatSend").disabled=lock||C.busy; }
-  renderLog();
+  renderLog(); plFill();
 }
 function dropSheet(){
   const s=document.createElement("div"); s.className="sheet";
@@ -658,6 +658,25 @@ function memoSheet(){
   row.append(cancel, btn("メモを記録","vacant",async()=>{ const v=S.memo.trim(); if(!v) return; await record("memo",{note:v}); S.memo=""; S.sheet=null; render(); }));
   s.append(t,row); setTimeout(()=>t.focus(),0); return s;
 }
+/* ---------- 地名（国土地理院の無料の逆ジオコーダ。送るのは緯度・経度だけ） ---------- */
+const PL={q:new Set(),muni:null,off:0};
+function plMuni(){ if(PL.muni) return PL.muni;
+  PL.muni=new Promise(res=>{ window.GSI=window.GSI||{}; GSI.MUNI_ARRAY=GSI.MUNI_ARRAY||{}; const sc=document.createElement("script"); sc.src="https://maps.gsi.go.jp/js/muni.js";
+    sc.onload=()=>res(true); sc.onerror=()=>{ PL.muni=null; res(false); }; document.head.append(sc); }); return PL.muni; }
+async function plName(lat,lng){
+  const key=lat.toFixed(4)+","+lng.toFixed(4); let c={}; try{ c=JSON.parse(localStorage.getItem("plc")||"{}"); }catch(e){} if(c[key]) return c[key];
+  const r=await fetch("https://mreversegeocoder.gsi.go.jp/reverse-geocoder/LonLatToAddress?lat="+lat+"&lon="+lng); const j=await r.json(); const x=j&&j.results; if(!x) return null;
+  await plMuni(); const m=String((window.GSI&&GSI.MUNI_ARRAY[String(Number(x.muniCd))])||"").split(",");
+  const city=(m[3]||"").replace(/[ 　]/g,""), town=x.lv01Nm&&x.lv01Nm!=="－"?x.lv01Nm:"";
+  const name=(city||town)?(city+(town?" "+town:"")):null;
+  if(name){ c[key]=name; const ks=Object.keys(c); if(ks.length>800) delete c[ks[0]]; try{ localStorage.setItem("plc",JSON.stringify(c)); }catch(e){} }
+  return name; }
+function plFill(){
+  if(!S.db||navigator.onLine===false||Date.now()<PL.off) return;
+  const todo=S.events.filter(e=>(e.type==="pickup"||e.type==="dropoff")&&e.lat!=null&&!e.place&&!PL.q.has(e.id)).slice(-3);
+  todo.forEach(async e=>{ PL.q.add(e.id);
+    try{ const n=await plName(e.lat,e.lng); if(n) await S.db.collection("events").doc(e.id).update({place:n}); else setTimeout(()=>PL.q.delete(e.id),300000); }
+    catch(x){ PL.off=Date.now()+120000; setTimeout(()=>PL.q.delete(e.id),120000); } }); }
 function renderLog(){
   const ol=$("log"); ol.replaceChildren();
   const list=[...S.events].reverse();
@@ -669,6 +688,7 @@ function renderLog(){
     let t=TYPE[e.type]||e.type; if(e.kind) t+="（"+e.kind+"）"; if(e.app) t+="［"+e.app+"］"; if(e.type==="stand_pos"||e.type==="wait_pos") t+="："+e.n+"台目"; if(e.type==="other_count") t+="（"+e.where+"）："+e.n+"台"; if(e.type==="stand_behind") t+="："+e.n+"台"; if(e.type==="dropoff") t+= e.amount ? "　"+fmtYen(e.amount)+"円"+(e.pay?"・"+e.pay:"") : "　金額なし（日報で入ります）"; if(e.type==="dispatch_cancel"){ if(e.reason) t+="・"+e.reason; if(e.waited!=null) t+="・待ち"+Math.floor(e.waited/60)+"分"+String(e.waited%60).padStart(2,"0")+"秒"; if(e.fee) t+="・キャンセル料"+fmtYen(e.fee)+"円"; } if(e.note) t+="："+e.note; if(e.lat==null) t+="（位置なし）";
     if(e.tip) t+="（チップ "+fmtYen(e.tip)+"円）";
     if(e.why) t+="（"+e.why+"へ）";
+    if(e.place) t+="　📍"+e.place;
     w.textContent=t; if(e.type==="dropoff"||e.type==="dispatch_cancel") w.classList.add("yen");
     const go=document.createElement("span"); go.className="go"; go.textContent="直す ›";
     const open=S.ed&&S.ed.id===e.id;
@@ -685,11 +705,11 @@ async function exportCsv(){
   if(!S.dl){ showErr("この画面からは書き出せません。Claude に「記録を出して」と頼んでください。"); return; }
   try{
     const snap=await S.db.collection("events").orderBy("at").get();
-    const rows=[["日時","曜日","種類","乗り方","アプリ","金額","キャンセル料","待ち秒","理由","支払い","メモ","緯度","経度","精度m","乗務ID"]];
+    const rows=[["日時","曜日","種類","乗り方","アプリ","金額","キャンセル料","待ち秒","理由","支払い","メモ","緯度","経度","精度m","地名","乗務ID"]];
     const wd="日月火水木金土";
     snap.docs.forEach(d=>{ const e=d.data(); const t=new Date(e.at);
       const ts=t.getFullYear()+"-"+String(t.getMonth()+1).padStart(2,"0")+"-"+String(t.getDate()).padStart(2,"0")+" "+String(t.getHours()).padStart(2,"0")+":"+String(t.getMinutes()).padStart(2,"0");
-      rows.push([ts,wd[t.getDay()],TYPE[e.type]||e.type,e.kind??"",e.app??"",e.amount??"",e.fee??"",e.waited??"",e.reason??"",e.pay??"",e.note??"",e.lat??"",e.lng??"",e.acc??"",e.shift??""]); });
+      rows.push([ts,wd[t.getDay()],TYPE[e.type]||e.type,e.kind??"",e.app??"",e.amount??"",e.fee??"",e.waited??"",e.reason??"",e.pay??"",e.note??"",e.lat??"",e.lng??"",e.acc??"",e.place??"",e.shift??""]); });
     const csv="﻿"+rows.map(r=>r.map(v=>{ v=String(v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }).join(",")).join("\n");
     const n=new Date(); const name=n.getFullYear()+String(n.getMonth()+1).padStart(2,"0")+String(n.getDate()).padStart(2,"0")+"-"+String(n.getHours()).padStart(2,"0")+String(n.getMinutes()).padStart(2,"0")+"-乗務記録.csv";
     await S.dl.save({filename:name,data:csv});
