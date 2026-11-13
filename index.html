@@ -518,7 +518,9 @@ function render(){
       g.append(btn("空車 多い","small",()=>record("taxi_many")), btn("空車 少ない","small",()=>record("taxi_few")),
                btn("人通り 多い","small",()=>record("people_many")), btn("人通り 少ない","small",()=>record("people_few")));
       if(st!=="hired"){ const ret=S.events.some(e=>e.type==="return_start");
-        const eb=btn("入庫（乗務終了）","ghost wide",()=>{ if(eb.dataset.arm==="1"){ record("shift_end"); return; } eb.dataset.arm="1"; eb.textContent="もう一度押すと入庫（乗務終了）"; setTimeout(()=>{ eb.dataset.arm=""; eb.textContent="入庫（乗務終了）"; },4000); }); g.append(eb);
+        // 2回押しの1回目を S に覚える（画面の描き直しで消えないように）
+        const armed=S.endArm&&Date.now()-S.endArm<5000;
+        const eb=btn(armed?"もう一度押すと入庫（乗務終了）":"入庫（乗務終了）",armed?"cruise wide":"ghost wide",()=>{ if(S.endArm&&Date.now()-S.endArm<5000){ S.endArm=0; record("shift_end"); return; } S.endArm=Date.now(); render(); setTimeout(()=>{ if(S.endArm&&Date.now()-S.endArm>=5000){ S.endArm=0; render(); } },5100); }); eb.dataset.free="1"; g.append(eb);
  }
       const last=S.events[S.events.length-1];
       if(last && last.type!=="shift_start") g.prepend(btn("↩ ひとつ戻す："+(TYPE[last.type]||""),"ghost wide",async()=>{ try{ await S.db.collection("events").doc(last.id).delete(); }catch(x){ showErr("戻せませんでした。"); } }));
