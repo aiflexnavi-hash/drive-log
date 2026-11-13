@@ -314,7 +314,7 @@ async function goalMonth(id){ G.monthFor=id; if(!S.db) return;
     const day=t=>{ const d=new Date(t); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); };
     const inP=shifts.filter(sh=>{ const d=day(sh.start); return d>=p.from&&d<=p.to; });
     if(inP.length){ const evs=(await S.db.collection("events").get()).docs.map(d=>d.data());
-      inP.forEach(sh=>{ const t=evs.filter(e=>e.shift===sh.id&&e.type==="dropoff").reduce((a,e)=>a+(Number(e.amount)||0),0)+evs.filter(e=>e.shift===sh.id&&e.type==="dispatch_cancel").reduce((a,e)=>a+(Number(e.fee)||0),0); if(t>0){ inc+=t; ex+=Math.round(t/1.1); n++; } }); }
+      inP.forEach(sh=>{ const t=evs.filter(e=>e.shift===sh.id&&e.type==="dropoff").reduce((a,e)=>a+(Number(e.amount)||0),0); if(t>0){ inc+=t; ex+=Math.round(t/1.1); n++; } }); }
     G.month={label:p.label.replace(/（.*/,""),to:p.to,inc,ex,n};
   }catch(e){ G.month=null; }
   if(S.shift&&S.shift.id===id) render(); }
@@ -453,7 +453,7 @@ function render(){
 
   const rides=S.events.filter(e=>e.type==="dropoff");
   const fees=S.events.filter(e=>e.type==="dispatch_cancel").reduce((a,e)=>a+(Number(e.fee)||0),0);
-  const sales=rides.reduce((a,e)=>a+(e.amount||0),0)+fees;
+  const sales=rides.reduce((a,e)=>a+(e.amount||0),0); // キャンセル料はアプリから個人に入るので営収に入れない
   $("stSales").textContent=fmtYen(sales); $("stRides").textContent=rides.length;
   if(S.shift){ const el=Date.now()-S.shift.start; $("stTime").textContent=hm(el); $("stRate").textContent= el>600000 ? fmtYen(Math.round(sales/(el/3600000))) : "–"; }
   else { $("stTime").textContent="–"; $("stRate").textContent="–"; }
@@ -680,10 +680,10 @@ async function dayData(){
   reps.forEach(r=>{ if(!r.date) return; const t=r.total!=null?Number(r.total)||0:(r.rides||[]).reduce((a,x)=>a+(Number(x.fare)||0),0);
     add(r.date,{id:r.id,inc:t,ex:r.total_ex||Math.round(t/1.1),rides:r.count!=null?r.count:(r.rides||[]).length,hours:r.hours||null,start:r.start||null,end:r.end||null,rep:true}); });
   shifts.forEach(sh=>{ if(!sh.start||have.has(sh.id)) return; const my=evs.filter(e=>e.shift===sh.id), rd=my.filter(e=>e.type==="dropoff");
-    const t=rd.reduce((a,e)=>a+(Number(e.amount)||0),0)+my.filter(e=>e.type==="dispatch_cancel").reduce((a,e)=>a+(Number(e.fee)||0),0);
-    add(ymd(new Date(sh.start)),{id:sh.id,inc:t,ex:Math.round(t/1.1),rides:rd.length,hours:sh.end?(sh.end-sh.start)/3600000:null,start:hhmm(sh.start),end:sh.end?hhmm(sh.end):null,live:!sh.end,rep:false}); });
+    const t=rd.reduce((a,e)=>a+(Number(e.amount)||0),0), fee=my.filter(e=>e.type==="dispatch_cancel").reduce((a,e)=>a+(Number(e.fee)||0),0);
+    add(ymd(new Date(sh.start)),{id:sh.id,inc:t,fee,ex:Math.round(t/1.1),rides:rd.length,hours:sh.end?(sh.end-sh.start)/3600000:null,start:hhmm(sh.start),end:sh.end?hhmm(sh.end):null,live:!sh.end,rep:false}); });
   V.data=days; V.dataAt=Date.now(); return days; }
-function monthSum(p,days){ let inc=0,ex=0,n=0,hrs=0; Object.keys(days).forEach(k=>{ if(k<p.from||k>p.to) return; days[k].forEach(x=>{ inc+=x.inc; ex+=x.ex; if(x.inc>0||x.rep) n++; if(x.hours) hrs+=x.hours; }); }); return {inc,ex,n,hrs}; }
+function monthSum(p,days){ let inc=0,ex=0,n=0,hrs=0,fee=0; Object.keys(days).forEach(k=>{ if(k<p.from||k>p.to) return; days[k].forEach(x=>{ inc+=x.inc; fee+=x.fee||0; ex+=x.ex; if(x.inc>0||x.rep) n++; if(x.hours) hrs+=x.hours; }); }); return {inc,ex,n,hrs,fee}; }
 function kv(box,k,v,yen,color){ const r=mk("div",null,null,"kv"); const a=mk("span",null,k), b=mk("b",color?"color:"+color:null,v); if(yen) b.className="yv"; r.append(a,b); box.append(r); return r; }
 function goShift(id){ N.pick=id; setView("after"); setTimeout(()=>{ try{ nipRender(); nipShowSaved(id); }catch(e){} },300); }
 async function homeRender(){
@@ -709,6 +709,7 @@ async function homeRender(){
     if(N.ashi){ const left=N.ashi-m.ex; kv(c,left>0?"足切り（税抜 "+fmtYen(N.ashi)+"円）まで":"足切り",left>0?"あと "+fmtYen(left)+"円":"クリア",true,left>0?null:"var(--vacant)"); }
     const rate=(N.ashi&&m.ex<N.ashi&&N.ashiRate)?N.ashiRate:(N.rate||set.rate||0.6);
     kv(c,"歩合の見込み（"+Math.round(rate*100)+"%）",fmtYen(Math.round(m.ex*rate))+"円",true);
+    if(m.fee>0) kv(c,"アプリのキャンセル料（営収とは別・個人に入る）",fmtYen(m.fee)+"円",true);
     if(w.has){ kv(c,"出番","残り "+w.left+"回（全"+w.all+"回）");
       if(mt){ const need=Math.max(0,mt-m.inc); kv(c,"月の目標 "+fmtYen(mt)+"円まで",need>0?"あと "+fmtYen(need)+"円":"達成！",true,need>0?null:"var(--vacant)");
         if(need>0&&w.left>0) kv(c,"1回あたりの目安","約 "+fmtYen(Math.round(need/w.left/1000)*1000)+"円",true); } }
@@ -834,11 +835,11 @@ async function nipShowSaved(id){
     const r=await S.db.collection("reports").doc(id).get();
     if(!r.exists){
       if(!id.startsWith("past-")){ const sh=N.shifts.find(x=>x.id===id); const evs=(await S.db.collection("events").where("shift","==",id).orderBy("at").get()).docs.map(d=>d.data());
-        const rd=evs.filter(e=>e.type==="dropoff"), fee=evs.filter(e=>e.type==="dispatch_cancel").reduce((a,e)=>a+(Number(e.fee)||0),0), tot=rd.reduce((a,e)=>a+(Number(e.amount)||0),0)+fee;
+        const rd=evs.filter(e=>e.type==="dropoff"), fee=evs.filter(e=>e.type==="dispatch_cancel").reduce((a,e)=>a+(Number(e.fee)||0),0), tot=rd.reduce((a,e)=>a+(Number(e.amount)||0),0);
         const end=sh&&sh.end||Date.now(), hrs=sh?(end-sh.start)/3600000:0;
         const box=document.createElement("div"); box.className="sheet"; box.style.fontSize="20px"; box.style.lineHeight="1.7";
         const t=document.createElement("div"); t.className="sub"; t.style.fontSize="16px"; t.textContent="この乗務のまとめ（アプリの記録から）"; box.append(t);
-        [["車種",sh&&sh.car],["出庫〜入庫",sh?hhmm(sh.start)+"〜"+(sh.end?hhmm(sh.end):"乗務中"):null],["拘束",hrs?hm(end-sh.start):null],["営収",fmtYen(tot)+"円"],["乗車",rd.length+"回"],["営収/h",hrs>0.2?fmtYen(Math.round(tot/hrs))+"円":null],["客単価",rd.length?fmtYen(Math.round(tot/rd.length))+"円":null]].forEach(([k,v])=>{ if(v==null) return; const d=document.createElement("div"); d.textContent=k+"："+v; box.append(d); });
+        [["車種",sh&&sh.car],["出庫〜入庫",sh?hhmm(sh.start)+"〜"+(sh.end?hhmm(sh.end):"乗務中"):null],["拘束",hrs?hm(end-sh.start):null],["営収",fmtYen(tot)+"円"],["乗車",rd.length+"回"],["営収/h",hrs>0.2?fmtYen(Math.round(tot/hrs))+"円":null],["客単価",rd.length?fmtYen(Math.round(tot/rd.length))+"円":null],["キャンセル料（営収とは別・個人に入る）",fee?fmtYen(fee)+"円":null]].forEach(([k,v])=>{ if(v==null) return; const d=document.createElement("div"); d.textContent=k+"："+v; box.append(d); });
         out.append(box); try{ const mb=document.createElement("div"); out.append(mb); }catch(e){} }
       const p=document.createElement("p"); p.className="note"; p.style.fontSize="17px"; p.textContent="この乗務の日報はまだ取り込んでいません。"; out.append(p); return; }
     const doc=r.data();
@@ -1225,7 +1226,7 @@ function watchShift(){
     const apply=()=>{ document.body.classList.toggle("hideyen",!show); $("yenTip").textContent= show ? "金額を出しています（数字を長押しでぼかしに戻す）" : "金額はぼかしています。数字を押すと5秒だけ見えます（長押しでずっと表示）"; };
     let t=null, lp=null;
     $("goal").addEventListener("click",e=>{ if(show||e.target.closest("button")) return; document.body.classList.remove("hideyen"); clearTimeout(t); t=setTimeout(()=>{ if(!show) document.body.classList.add("hideyen"); },5000); });
-    ["vHome","vCal"].forEach(id=>$(id).addEventListener("click",e=>{ if(show||!e.target.closest(".yv")) return; document.body.classList.remove("hideyen"); clearTimeout(t); t=setTimeout(()=>{ if(!show) document.body.classList.add("hideyen"); },5000); }));
+    ["vHome","vCal","log"].forEach(id=>$(id).addEventListener("click",e=>{ if(show||!e.target.closest(".yv,.yen")) return; document.body.classList.remove("hideyen"); clearTimeout(t); t=setTimeout(()=>{ if(!show) document.body.classList.add("hideyen"); },5000); }));
     $("stats").addEventListener("click",()=>{ if(show) return; document.body.classList.remove("hideyen"); clearTimeout(t); t=setTimeout(()=>{ if(!show) document.body.classList.add("hideyen"); },5000); });
     $("stats").addEventListener("pointerdown",()=>{ lp=setTimeout(()=>{ show=!show; try{ localStorage.setItem("showYen",show?"1":"0"); }catch(e){} apply(); try{ navigator.vibrate&&navigator.vibrate(40); }catch(e){} },800); });
     ["pointerup","pointerleave","pointercancel"].forEach(ev=>$("stats").addEventListener(ev,()=>clearTimeout(lp)));
