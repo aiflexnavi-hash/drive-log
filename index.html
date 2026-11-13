@@ -467,6 +467,10 @@ function render(){
   else if(S.sheet==="cancel") m.append(cancelSheet());
   else {
     const g=document.createElement("div"); g.className="grid";
+    // 金額を飛ばした降車：停車中なら入れるよう促す（古い順に1件ずつ）
+    { const miss=S.events.filter(e=>e.type==="dropoff"&&!e.amount);
+      if(miss.length&&!moving()&&st!=="hired"){ const e0=miss[0]; const r=btn("金額が入っていない降車 "+miss.length+"件（"+hhmm(e0.at)+"〜）→ 入れる","wait wide",()=>{ S.editId=e0.id; S.amount=""; S.pay=e0.pay||null; S.tip=e0.tip||0; S.sheet="dropoff"; render(); window.scrollTo({top:0,behavior:"smooth"}); });
+        r.dataset.free="1"; r.style.cssText="min-height:64px;font-size:20px"; g.append(r); } }
     if(st==="off") g.append(btn("出庫","vacant wide",()=>record("shift_start")));
     if(st!=="off" && S.shift && (!S.shift.car||S.carEdit)){ const ch=document.createElement("div"); ch.className="chips"; ch.style.gridColumn="1/-1";
       const lb=document.createElement("div"); lb.className="sub"; lb.style.width="100%"; lb.textContent=S.carEdit?"車種を選び直す（今："+S.shift.car+"）":"今日の車種は？"; ch.append(lb);
@@ -504,7 +508,7 @@ function render(){
       g.append(btn("お客さん乗車","hired",()=>record("pickup",{kind:"アプリ・迎車",app:acc&&acc.app||null})), btn("迎車キャンセル","",()=>{ S.sheet="cancel"; S.amount=""; S.reason=null; render(); }));
       if(st==="arrived"){ const arr=[...S.events].reverse().find(x=>x.type==="dispatch_arrive"); const tm=document.createElement("div"); tm.id="waitTimer"; tm.className="lock"; tm.style.gridColumn="1/-1"; tm.style.background="var(--panel)"; tm.style.color="var(--fg)"; tm.dataset.since=arr?arr.at:Date.now(); g.prepend(tm); }
     }
-    if(st==="hired"){ g.append(btn("降車","vacant",()=>record("dropoff",{amount:null})), btn("降車（金額も入れる）","",()=>{S.sheet="dropoff";S.amount="";S.pay=null;S.tip=0;render();})); }
+    if(st==="hired"){ const d=btn("降車","vacant wide",()=>{ S.sheet="dropoff"; S.editId=null; S.amount=""; S.pay=null; S.tip=0; render(); }); d.dataset.free="1"; g.append(d); }
     if(st!=="off"){
       g.append(btn("手上げ客を見た","small",()=>record("seen_hail")), btn("乗り場に客待ち","small",()=>record("seen_rank")));
       g.append(btn("空車 多い","small",()=>record("taxi_many")), btn("空車 少ない","small",()=>record("taxi_few")),
@@ -522,6 +526,7 @@ function render(){
 }
 function dropSheet(){
   const s=document.createElement("div"); s.className="sheet";
+  { const ev=S.editId&&S.events.find(x=>x.id===S.editId); const h=document.createElement("div"); h.className="sub"; h.style.cssText="font-size:18px;color:var(--fg)"; h.textContent=ev?hhmm(ev.at)+" の降車の金額":"降車の金額（あとで入れるなら「スキップ」）"; s.append(h); }
   const a=document.createElement("div"); a.className="amount"; a.textContent=(S.amount?fmtYen(+S.amount):"0")+" 円";
   const pad=document.createElement("div"); pad.className="pad";
   ["1","2","3","4","5","6","7","8","9","00","0","←"].forEach(k=>{
@@ -545,6 +550,7 @@ function dropSheet(){
   ok.disabled=!S.amount;
   const cancel=btn("やめる","ghost",()=>{S.sheet=null;S.editId=null;render();}); cancel.dataset.free="1";
   row.append(cancel, ok);
+  if(!S.editId){ const sk=btn("スキップ（金額は停車してから）","ghost wide",async()=>{ await record("dropoff",{amount:null}); S.sheet=null; render(); }); sk.dataset.free="1"; sk.style.cssText="min-height:72px;font-size:21px"; row.append(sk); }
   s.append(a,pad,chips,tips,row); return s;
 }
 function cancelSheet(){
