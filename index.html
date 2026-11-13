@@ -732,7 +732,7 @@ async function homeRender(){
     if(N.ashi){ const left=N.ashi-m.ex; kv(c,left>0?"足切り（税抜 "+fmtYen(N.ashi)+"円）まで":"足切り",left>0?"あと "+fmtYen(left)+"円":"クリア",true,left>0?null:"var(--vacant)"); }
     const rate=(N.ashi&&m.ex<N.ashi&&N.ashiRate)?N.ashiRate:(N.rate||set.rate||0.6);
     kv(c,"歩合の見込み（"+Math.round(rate*100)+"%）",fmtYen(Math.round(m.ex*rate))+"円",true);
-    if(m.fee>0) kv(c,"アプリのキャンセル料・チップ・キャンペーン（営収とは別・個人に入る）",fmtYen(m.fee)+"円",true);
+    if(m.fee>0) kv(c,"キャンセル代等（営収とは別・個人に入る）",fmtYen(m.fee)+"円",true);
     if(w.has){ kv(c,"出番","残り "+w.left+"回（全"+w.all+"回）");
       if(mt){ const need=Math.max(0,mt-m.inc); kv(c,"月の目標 "+fmtYen(mt)+"円まで",need>0?"あと "+fmtYen(need)+"円":"達成！",true,need>0?null:"var(--vacant)");
         if(need>0&&w.left>0) kv(c,"1回あたりの目安","約 "+fmtYen(Math.round(need/w.left/1000)*1000)+"円",true); } }
@@ -822,17 +822,17 @@ async function calRender(){
       else { const f=btn(rp?"この日の日報を直す":"この日の日報を入れる（営収・回数・時間）","vacant",()=>{ V.formDay=k; calRender(); }); f.dataset.free="1"; f.style.cssText="width:100%;margin-top:8px;min-height:64px;font-size:20px"; c.append(f); } }
     { const xs=(V.extras&&V.extras[k])||[]; const xb=mk("div","margin-top:10px");
       xs.forEach(x=>{ const r=mk("div","display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;padding:4px 0;border-bottom:1px solid var(--line)");
-        const a=mk("span",null,"キャンペーン"+(x.app?"［"+x.app+"］":"")+" "); a.append(mk("b",null,fmtYen(Number(x.amount)||0)+"円","yv"));
+        const a=mk("span",null,"キャンセル代等"+(x.app?"［"+x.app+"］":"")+" "); a.append(mk("b",null,fmtYen(Number(x.amount)||0)+"円","yv"));
         const d=btn("消す","ghost",async()=>{ if(d.dataset.arm!=="1"){ d.dataset.arm="1"; d.textContent="もう一度で消す"; return; } try{ await S.db.collection("extras").doc(x.id).delete(); V.dataAt=0; calRender(); }catch(e){ toast("消せませんでした",false); } });
         d.dataset.free="1"; d.style.cssText="min-height:44px;font-size:16px;padding:0 10px"; r.append(a,d); xb.append(r); });
       if(V.campDay===k){ const w=mk("div","display:flex;flex-direction:column;gap:8px;margin-top:8px"); let app=null;
         const ch=mk("div",null,null,"chips"); const draw=()=>{ ch.replaceChildren(); ["GO","DiDi","S.RIDE","Uber","その他"].forEach(a=>{ const b=btn(a,"",()=>{ app=a; draw(); }); b.dataset.free="1"; b.setAttribute("aria-pressed",String(app===a)); ch.append(b); }); }; draw();
         const i=document.createElement("input"); i.type="number"; i.inputMode="numeric"; i.placeholder="金額（円）"; i.style.cssText="font-size:22px;padding:8px;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:10px";
-        const ok=btn("キャンペーンを保存","vacant",async()=>{ const v=Number(String(i.value).replace(/[^0-9]/g,"")); if(!(v>0)){ toast("金額を入れてください",false); return; }
-          try{ await S.db.collection("extras").add({date:k,kind:"campaign",app,amount:v,at:Date.now()}); toast("✓ キャンペーンを保存しました"); V.campDay=null; V.dataAt=0; calRender(); }catch(e){ toast("保存できませんでした",false); } });
+        const ok=btn("保存","vacant",async()=>{ const v=Number(String(i.value).replace(/[^0-9]/g,"")); if(!(v>0)){ toast("金額を入れてください",false); return; }
+          try{ await S.db.collection("extras").add({date:k,kind:"campaign",app,amount:v,at:Date.now()}); toast("✓ 保存しました"); V.campDay=null; V.dataAt=0; calRender(); }catch(e){ toast("保存できませんでした",false); } });
         const cc=btn("やめる","ghost",()=>{ V.campDay=null; calRender(); }); ok.dataset.free="1"; cc.dataset.free="1";
-        w.append(mk("div","font-weight:700","アプリのキャンペーン（営収とは別・個人に入る）"),ch,i,ok,cc); xb.append(w); }
-      else { const b=btn("アプリのキャンペーンを入れる","ghost",()=>{ V.campDay=k; calRender(); }); b.dataset.free="1"; b.style.cssText="width:100%;margin-top:8px;min-height:52px;font-size:17px"; xb.append(b); }
+        w.append(mk("div","font-weight:700","キャンセル代等（アプリから個人に入るお金。営収とは別）"),ch,i,ok,cc); xb.append(w); }
+      else { const b=btn("キャンセル代等を入れる","ghost",()=>{ V.campDay=k; calRender(); }); b.dataset.free="1"; b.style.cssText="width:100%;margin-top:8px;min-height:52px;font-size:17px"; xb.append(b); }
       c.append(xb); }
     if(k>=today||!ds.length){ const on=wd.has(k); const u=btn(on?"出番から外す":"この日を出番にする","ghost",async()=>{ const s2=new Set((G.set&&G.set.workDays)||[]); if(on) s2.delete(k); else s2.add(k);
         try{ await settingsPatch({workDays:[...s2].sort()}); toast(on?"✓ 出番から外しました":"✓ 出番にしました"); G.monthFor=null; calRender(); }catch(e){ toast("保存できませんでした",false); } });
