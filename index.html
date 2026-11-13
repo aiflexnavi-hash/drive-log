@@ -1029,6 +1029,16 @@ async function calRender(){
       if(x.hours>0.2) kv(t,"営収/h",fmtYen(Math.round(x.inc/x.hours))+"円",true);
       const b=btn("この日の日報・走った道を見る","ghost",()=>goShift(x.id)); b.dataset.free="1"; b.style.cssText="width:100%;margin-top:8px"; t.append(b);
       if(!x.rep&&!x.live){ const o=btn("日報を出力（画像・PDF）","ghost",()=>nippoOut(x.id)); o.dataset.free="1"; o.style.cssText="width:100%;margin-top:8px"; t.append(o); }
+      if(!x.rep&&!x.live){ const armed=V.delArm&&V.delArm.id===x.id&&Date.now()-V.delArm.at<5000;
+        const dz=btn(armed?"もう一度押すと、この乗務を丸ごと消します":"この乗務を丸ごと消す（試し・業務外）",armed?"cruise":"ghost",async()=>{
+          if(!(V.delArm&&V.delArm.id===x.id&&Date.now()-V.delArm.at<5000)){ V.delArm={id:x.id,at:Date.now()}; calRender(); setTimeout(()=>{ if(V.delArm&&V.delArm.id===x.id){ V.delArm=null; if(V.cur==="cal") calRender(); } },5100); return; }
+          V.delArm=null;
+          try{ const col=async(c,q)=>{ for(const d of (await q).docs) await S.db.collection(c).doc(d.id).delete(); };
+            await col("events",S.db.collection("events").where("shift","==",x.id).get());
+            await col("tracks",S.db.collection("tracks").where("shift","==",x.id).get());
+            await S.db.collection("shifts").doc(x.id).delete();
+            toast("✓ この乗務を消しました"); V.dataAt=0; G.monthFor=null; calRender(); }catch(e){ toast("消せませんでした",false); } });
+        dz.dataset.free="1"; dz.style.cssText="width:100%;margin-top:8px;font-size:16px"; t.append(dz); }
       c.append(t); });
     if(k<=today&&!ds.some(x=>x.live)){ const rp=ds.find(x=>x.rep), ap=ds.find(x=>!x.rep);
       if(V.formDay===k) c.append(dayForm(k,rp,ap));
