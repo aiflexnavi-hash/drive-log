@@ -1,10 +1,12 @@
 # 乗務記録 Android アプリ（テスト版）を作る。画面はウェブ版と同じ index.html / shim.js。
-# 署名はここではしない（鍵は公開リポジトリに置かない）。できた AAB/APK は Actions の成果物に置く。
+# 署名はここではしない（鍵は公開リポジトリに置かない）。できた AAB/APK は Actions の成果物と、リリース（build-版番号）に置く。
 name: android
 on:
   workflow_dispatch:
   push:
     paths: ["app/**", "index.html", "shim.js", ".github/workflows/android.yml"]
+permissions:
+  contents: write
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -42,3 +44,10 @@ jobs:
             app/android/app/build/outputs/bundle/release/*.aab
             app/android/app/build/outputs/apk/debug/*.apk
           retention-days: 30
+      - name: 受け取り用に置く（署名前。署名は鍵を持つ側で行う）
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          V=0.1.${{ github.run_number }}
+          cp app/android/app/build/outputs/bundle/release/app-release.aab driver-$V-unsigned.aab
+          cp app/android/app/build/outputs/apk/debug/app-debug.apk driver-$V-debug.apk
+          gh release create "build-$V" driver-$V-unsigned.aab driver-$V-debug.apk --prerelease --target "${{ github.sha }}" --title "テスト版ビルド $V（署名前）" --notes "自動ビルド。ストアに出すものは別に署名する。"
