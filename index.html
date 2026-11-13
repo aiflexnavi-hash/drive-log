@@ -787,9 +787,10 @@ async function homeRender(){
   const ps=V.ps||(V.ps=$("paySet"));
   box.replaceChildren();
   const today=ymd(new Date()), set=G.set||{}, wd=new Set(set.workDays||[]);
-  // 日報がまだの日（アプリで乗務したのに、日報を入れていない日。直近45日）
-  { const lim=ymd(new Date(Date.now()-45*86400000));
-    const miss=Object.keys(days).filter(k=>k>=lim&&k<=today&&!days[k].some(x=>x.rep)&&days[k].some(x=>!x.rep&&!x.live&&(x.rides>0||(x.hours||0)>=1))).sort();
+  // 日報がまだの日：アプリで乗務した日（入庫済み）と、カレンダーで出番にした過去の日のうち、日報が入っていない日
+  { const appDays=Object.keys(days).filter(k=>k<=today&&days[k].some(x=>!x.rep&&!x.live&&(x.rides>0||(x.hours||0)>=1)));
+    const planDays=[...wd].filter(k=>k<today);
+    const miss=[...new Set([...appDays,...planDays])].filter(k=>!(days[k]||[]).some(x=>x.rep)&&!(days[k]||[]).some(x=>x.live)).sort();
     if(miss.length){ const k0=miss[0];
       const b=btn("日報がまだの日 "+miss.length+"日（"+miss.slice(0,3).map(k=>Number(k.slice(5,7))+"/"+Number(k.slice(8))).join("・")+(miss.length>3?"…":"")+"）→ 入れる","wait wide",()=>{ V.calDay=k0; V.formDay=k0; setView("cal"); setTimeout(()=>{ const c=[...document.querySelectorAll("#vCal .card")].pop(); if(c) c.scrollIntoView({behavior:"smooth",block:"start"}); },700); });
       b.dataset.free="1"; b.style.cssText="width:100%;min-height:72px;font-size:20px;margin-bottom:10px"; box.append(b); } }
@@ -882,8 +883,15 @@ async function calRender(){
     b.append(mk("span",dayColor(k)?"color:"+dayColor(k):null,(d.getDate()===1||k===p.from?(d.getMonth()+1)+"/":"")+d.getDate()));
     const sm=document.createElement("small"); sm.textContent=ds.length?(inc>0?man(inc):"●"):""; sm.className="yv"; b.append(sm);
     if(wd.has(k)) b.classList.add("plan"); if(ds.length) b.classList.add("done"); if(k===today) b.classList.add("today"); if(k===V.calDay) b.classList.add("sel");
-    b.addEventListener("click",()=>{ V.calDay=k; calRender(); }); g.append(b); }
+    b.addEventListener("click",async()=>{
+      if(V.calMark){ const s2=new Set((G.set&&G.set.workDays)||[]); if(s2.has(k)) s2.delete(k); else s2.add(k); const arr=[...s2].sort();
+        G.set=G.set||{}; G.set.workDays=arr; calRender(); try{ await settingsPatch({workDays:arr}); G.monthFor=null; }catch(e){ toast("保存できませんでした",false); } return; }
+      V.calDay=k; calRender(); }); g.append(b); }
+  // 出番の日をまとめて選ぶ（過去にさかのぼって入れる）
+  if(V.calMark){ const t=mk("div","font-size:19px;font-weight:700;color:var(--wait);margin:4px 0","出番の日を押してください（もう一度押すと外れます）。◀ 前 で前の月にも行けます。"); box.append(t); }
   box.append(g);
+  { const mb=btn(V.calMark?"選び終わった":"出番の日をまとめて選ぶ（過去も）",V.calMark?"vacant":"ghost",()=>{ V.calMark=!V.calMark; calRender(); if(!V.calMark) toast("✓ 出番を保存しました。日報がまだの日はホームに出ます"); });
+    mb.dataset.free="1"; mb.style.cssText="width:100%;min-height:60px;font-size:19px;margin-top:8px"; box.append(mb); }
   box.append(mk("div","font-size:15px","赤い字＝日曜・祝日　青い枠＝出番の予定　塗り＝乗務した日　数字＝その日の営収（押すと5秒見えます）","note"));
   // 選んだ日の中身
   { const k=V.calDay, ds=days[k]||[], c=mk("div",null,null,"card");
