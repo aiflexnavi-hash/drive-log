@@ -138,7 +138,11 @@ window.NO_CHAT=true;   // 雑談の相談はアプリに入れない
         speechSynthesis.speak(u); }catch(e){ rej({code:"unavailable"}); } }),
       stop:()=>{ try{ speechSynthesis.cancel(); }catch(e){} } };
   }
-  const downloads={ save:async({filename,data})=>{ const a=document.createElement("a"); a.href=URL.createObjectURL(data instanceof Blob?data:new Blob([data],{type:"text/csv"})); a.download=filename; document.body.append(a); a.click(); a.remove(); } };
+  // アプリ（Android）では、ファイルを一時保存して「共有」から保存・印刷・送信してもらう
+  async function nativeSave(filename,blob){ const P=window.Capacitor&&window.Capacitor.Plugins; const FS=P&&P.Filesystem, SH=P&&P.Share; if(!FS||!SH) return false;
+    const b64=await new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(String(r.result).split(",")[1]); r.onerror=rej; r.readAsDataURL(blob); });
+    const w=await FS.writeFile({path:filename,data:b64,directory:"CACHE"}); await SH.share({title:filename,files:[w.uri]}); return true; }
+  const downloads={ save:async({filename,data})=>{ const blob=data instanceof Blob?data:new Blob([data],{type:"text/csv"}); try{ if(await nativeSave(filename,blob)) return; }catch(e){ if(e&&/cancel/i.test(String(e.message||e))) return; } const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=filename; document.body.append(a); a.click(); a.remove(); } };
 
   /* ---------- AI（保存先にキーがあるときだけ） ---------- */
   let aiOn=LS.get("aiOn",false);
