@@ -474,7 +474,7 @@ function render(){
     if(st==="off") g.append(btn("出庫","vacant wide",()=>record("shift_start")));
     if(st!=="off" && S.shift && (!S.shift.car||S.carEdit)){ const ch=document.createElement("div"); ch.className="chips"; ch.style.gridColumn="1/-1";
       const lb=document.createElement("div"); lb.className="sub"; lb.style.width="100%"; lb.textContent=S.carEdit?"車種を選び直す（今："+S.shift.car+"）":"今日の車種は？"; ch.append(lb);
-      let cars=["JPN TAXI","クラウン","プリウスα","カムリ","大型・ワゴン","その他"]; try{ const c=JSON.parse(localStorage.getItem("cars")||"null"); if(Array.isArray(c)&&c.length) cars=c; }catch(e){}
+      let cars=["JPN TAXI","クラウン","シエンタ等","プリウス等","セダン等","ミニバン等（6名以上）","その他"]; try{ const c=JSON.parse(localStorage.getItem("cars")||"null"); if(Array.isArray(c)&&c.length) cars=c; }catch(e){}
       cars.forEach(c=>{ const b=btn(c,"",async()=>{ let v=c; if(c==="その他"){ const w=String(prompt("車種を入力","")||"").trim().slice(0,20); if(!w) return; v=w; try{ const l=cars.filter(x=>x!=="その他"); if(!l.includes(w)) l.push(w); l.push("その他"); localStorage.setItem("cars",JSON.stringify(l)); }catch(e){} }
         try{ await S.db.collection("shifts").doc(S.shift.id).update({car:v}); S.shift.car=v; S.carEdit=false; try{ localStorage.setItem("lastCar",v); }catch(e){} toast("✓ 車種："+v); render(); }catch(e){ toast("保存できませんでした",false); } }); b.dataset.free="1"; ch.append(b); });
       if(S.carEdit){ const x=btn("やめる","ghost",()=>{ S.carEdit=false; render(); }); x.dataset.free="1"; ch.append(x); } g.append(ch); }
