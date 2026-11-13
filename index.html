@@ -466,12 +466,12 @@ function render(){
   else {
     const g=document.createElement("div"); g.className="grid";
     if(st==="off") g.append(btn("出庫","vacant wide",()=>record("shift_start")));
-    if(st!=="off" && S.shift && !S.shift.car){ const ch=document.createElement("div"); ch.className="chips"; ch.style.gridColumn="1/-1";
-      const lb=document.createElement("div"); lb.className="sub"; lb.style.width="100%"; lb.textContent="今日の車種は？（1回だけ）"; ch.append(lb);
+    if(st!=="off" && S.shift && (!S.shift.car||S.carEdit)){ const ch=document.createElement("div"); ch.className="chips"; ch.style.gridColumn="1/-1";
+      const lb=document.createElement("div"); lb.className="sub"; lb.style.width="100%"; lb.textContent=S.carEdit?"車種を選び直す（今："+S.shift.car+"）":"今日の車種は？"; ch.append(lb);
       let cars=["JPN TAXI","クラウン","プリウスα","カムリ","大型・ワゴン","その他"]; try{ const c=JSON.parse(localStorage.getItem("cars")||"null"); if(Array.isArray(c)&&c.length) cars=c; }catch(e){}
-      cars.forEach(c=>{ const b=btn(c,"",async()=>{ let v=c; if(c==="その他"){ if(ch.querySelector("input")) return; const i=document.createElement("input"); i.placeholder="車種を入力"; i.style.cssText="font-size:22px;padding:10px;flex:1;min-width:0;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:10px"; const ok=btn("決定","vacant",async()=>{ const w=i.value.trim(); if(!w) return; try{ const l=cars.filter(x=>x!=="その他"); if(!l.includes(w)) l.push(w); l.push("その他"); localStorage.setItem("cars",JSON.stringify(l)); }catch(e){} try{ await S.db.collection("shifts").doc(S.shift.id).update({car:w}); S.shift.car=w; toast("✓ 車種："+w); render(); }catch(e){ toast("保存できませんでした",false); } }); ok.dataset.free="1"; ch.append(i,ok); i.focus(); return; }
-        try{ await S.db.collection("shifts").doc(S.shift.id).update({car:v}); S.shift.car=v; toast("✓ 車種："+v); render(); }catch(e){ toast("保存できませんでした",false); } }); b.dataset.free="1"; ch.append(b); });
-      g.append(ch); }
+      cars.forEach(c=>{ const b=btn(c,"",async()=>{ let v=c; if(c==="その他"){ if(ch.querySelector("input")) return; const i=document.createElement("input"); i.placeholder="車種を入力"; i.style.cssText="font-size:22px;padding:10px;flex:1;min-width:0;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:10px"; const ok=btn("決定","vacant",async()=>{ const w=i.value.trim(); if(!w) return; try{ const l=cars.filter(x=>x!=="その他"); if(!l.includes(w)) l.push(w); l.push("その他"); localStorage.setItem("cars",JSON.stringify(l)); }catch(e){} try{ await S.db.collection("shifts").doc(S.shift.id).update({car:w}); S.shift.car=w; S.carEdit=false; toast("✓ 車種："+w); render(); }catch(e){ toast("保存できませんでした",false); } }); ok.dataset.free="1"; ch.append(i,ok); i.focus(); return; }
+        try{ await S.db.collection("shifts").doc(S.shift.id).update({car:v}); S.shift.car=v; S.carEdit=false; toast("✓ 車種："+v); render(); }catch(e){ toast("保存できませんでした",false); } }); b.dataset.free="1"; ch.append(b); });
+      if(S.carEdit){ const x=btn("やめる","ghost",()=>{ S.carEdit=false; render(); }); x.dataset.free="1"; ch.append(x); } g.append(ch); }
     if(st==="vacant"||st==="cruise"){ g.append(btn("乗車（手上げ）","hired",()=>record("pickup",{kind:"手上げ"})), btn("アプリ受注（迎車へ）","hired",()=>record("dispatch_accept")));
       g.append(btn("付け待ち開始","wait",()=>record("wait_start")), btn("乗り場に並ぶ","wait",()=>record("stand_start"))); }
     if(st==="stand"){ g.append(btn("乗車","hired",()=>record("pickup",{kind:"乗り場"})), btn("列を離れる","",()=>record("stand_end"))); if(gpsFresh()&&startPlace("stand")) g.lastChild.remove(); }
@@ -508,7 +508,8 @@ function render(){
       g.append(btn("空車 多い","small",()=>record("taxi_many")), btn("空車 少ない","small",()=>record("taxi_few")),
                btn("人通り 多い","small",()=>record("people_many")), btn("人通り 少ない","small",()=>record("people_few")));
       if(st!=="hired"){ const ret=S.events.some(e=>e.type==="return_start");
-        const eb=btn("入庫（乗務終了）","ghost wide",()=>{ if(eb.dataset.arm==="1"){ record("shift_end"); return; } eb.dataset.arm="1"; eb.textContent="もう一度押すと入庫（乗務終了）"; setTimeout(()=>{ eb.dataset.arm=""; eb.textContent="入庫（乗務終了）"; },4000); }); g.append(eb); }
+        const eb=btn("入庫（乗務終了）","ghost wide",()=>{ if(eb.dataset.arm==="1"){ record("shift_end"); return; } eb.dataset.arm="1"; eb.textContent="もう一度押すと入庫（乗務終了）"; setTimeout(()=>{ eb.dataset.arm=""; eb.textContent="入庫（乗務終了）"; },4000); }); g.append(eb);
+        if(S.shift&&S.shift.car&&!S.carEdit){ const cb=btn("車種を変える（今："+S.shift.car+"）","ghost wide",()=>{ S.carEdit=true; render(); window.scrollTo({top:0,behavior:"smooth"}); }); cb.dataset.free="1"; cb.style.cssText="min-height:52px;font-size:17px"; g.append(cb); } }
       const last=S.events[S.events.length-1];
       if(last && last.type!=="shift_start") g.prepend(btn("↩ ひとつ戻す："+(TYPE[last.type]||""),"ghost wide",async()=>{ try{ await S.db.collection("events").doc(last.id).delete(); }catch(x){ showErr("戻せませんでした。"); } }));
     }
