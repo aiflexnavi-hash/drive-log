@@ -78,11 +78,27 @@ ol.log .del{min-height:44px;font-size:16px;padding:0 12px;border-radius:8px}
 .chips button{font-size:24px;min-height:60px;min-width:56px}
 #toast{position:fixed;left:16px;right:16px;bottom:24px;z-index:50;background:var(--vacant);color:#06140d;font-size:24px;font-weight:800;text-align:center;padding:18px 12px;border-radius:14px;opacity:0;transform:translateY(20px);transition:opacity .15s,transform .15s;pointer-events:none}
 #toast.show{opacity:1;transform:none} #toast.bad{background:var(--hired);color:#fff}
-.tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0}
-.tabs button{min-height:60px;font-size:20px;border-radius:12px}
+.tabs{position:fixed;left:0;right:0;bottom:0;z-index:60;display:grid;grid-template-columns:repeat(5,1fr);gap:4px;background:var(--bg);border-top:1px solid var(--line);padding:6px 6px calc(6px + var(--sab,env(safe-area-inset-bottom,0px)))}
+.tabs button{min-height:60px;font-size:clamp(13px,3.7vw,17px);white-space:nowrap;letter-spacing:-.5px;font-weight:700;border-radius:10px;padding:0 2px;border:0;background:transparent;color:var(--muted)}
 .tabs button.on{background:var(--fg);color:var(--bg)}
-body.after .wrap>*:not(header):not(.tabs):not(#nippo):not(#afterEmpty){display:none!important}
-body:not(.after) #nippo, body:not(.after) #afterEmpty{display:none!important}
+.wrap{padding-bottom:100px}
+.view{display:none;flex-direction:column;gap:14px}
+body[data-v="home"] #vHome, body[data-v="rec"] #vRec, body[data-v="rec"] #vRec2, body[data-v="after"] #vAfter, body[data-v="cal"] #vCal, body[data-v="ana"] #vAna{display:flex}
+#toast{bottom:100px}
+.card{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:14px;font-size:19px;line-height:1.6}
+.card h3{margin:0 0 6px;font-size:21px}
+.card .kv{display:grid;grid-template-columns:1fr auto;gap:8px;padding:4px 0;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+.card .kv b{font-weight:800}
+body.hideyen .yv{filter:blur(10px)}
+.calg{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.calg .w{text-align:center;font-size:14px;color:var(--muted)}
+.calg button{min-height:58px;padding:2px 0;border-radius:8px;border:1px solid var(--line);background:transparent;color:var(--fg);display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:17px;line-height:1.2}
+.calg button small{font-size:12px;font-weight:700;color:var(--vacant)}
+.calg button.plan{border:2px solid #2e8bff}
+.calg button.done{background:rgba(46,139,255,.18)}
+.calg button.today{box-shadow:inset 0 0 0 2px var(--fg)}
+.calg button.sel{background:var(--fg);color:var(--bg)}
+.calg button.sel small{color:var(--bg)}
 body.hideyen #stats .yen b, body.hideyen #log .yen, body.hideyen #goal .yen, body.hideyen .amount.yen{filter:blur(12px)}
 #stats{cursor:pointer;position:relative}
 #goal{background:var(--panel);border-radius:10px;padding:10px 12px;font-size:18px}
@@ -105,11 +121,24 @@ body.hideyen #stats .yen b, body.hideyen #log .yen, body.hideyen #goal .yen, bod
     <span class="gps" id="gps">位置：確認中</span>
   </header>
 
-  <div class="tabs" id="tabs">
-    <button type="button" id="tabRec" data-free="1" class="on">乗務中</button>
-    <button type="button" id="tabAfter" data-free="1">入庫後（日報）</button>
+  <nav class="tabs" id="tabs">
+    <button type="button" data-v="home" data-free="1">ホーム</button>
+    <button type="button" data-v="rec" id="tabRec" data-free="1">乗務</button>
+    <button type="button" data-v="after" id="tabAfter" data-free="1">入庫</button>
+    <button type="button" data-v="cal" data-free="1">カレンダー</button>
+    <button type="button" data-v="ana" data-free="1">分析</button>
+  </nav>
+
+  <p class="err" id="err" hidden></p>
+  <div class="view" id="vHome"></div>
+  <div class="view" id="vCal"></div>
+  <div class="view" id="vAna">
+    <p class="note" style="font-size:17px">自分の記録と日報だけから出しています。乗務や日報が増えるほど正確になります。</p>
+    <details id="myStats" style="margin:6px 0 12px"><summary style="font-size:19px;min-height:44px;display:flex;align-items:center;cursor:pointer">自分の稼げる時間帯・曜日・乗車地</summary><div id="myStatsBody"></div></details>
+    <details id="myMap" style="margin:6px 0 12px"><summary style="font-size:19px;min-height:44px;display:flex;align-items:center;cursor:pointer">自分の乗車地の地図</summary><div id="myMapBody"></div></details>
   </div>
 
+  <div class="view" id="vRec">
   <div class="yentip" id="yenTip">金額はぼかしています。数字を押すと5秒だけ見えます</div>
   <div class="stats" id="stats">
     <div class="stat yen"><span>営収</span><b id="stSales">0</b></div>
@@ -121,7 +150,6 @@ body.hideyen #stats .yen b, body.hideyen #log .yen, body.hideyen #goal .yen, bod
   <div id="goal" hidden></div>
   <div class="lock" id="lock" hidden>走行中です。文字入力（相談・メモ）は停車してから</div>
   <div id="main"></div>
-  <p class="err" id="err" hidden></p>
 
   <section class="sheet" id="chat" hidden>
     <div class="sub">相談（記録を見て答えます）</div>
@@ -133,13 +161,13 @@ body.hideyen #stats .yen b, body.hideyen #log .yen, body.hideyen #goal .yen, bod
     </div>
   </section>
 
+  </div>
+
+  <div class="view" id="vAfter">
   <p class="note" id="afterEmpty" style="font-size:19px">日報の読み込みはこの画面で使えます（読み込み中、または使えない環境です）。</p>
   <section class="sheet" id="nippo" hidden>
     <div class="sub">日報の読み込み（写真から記録と突き合わせ）</div>
     <p class="note" id="nipNote" style="font-size:18px">入庫後に、乗務員日報を撮ってください（2枚なら1枚ずつ続けて）。写真は保存しません。読み取った数字だけを残します。</p>
-    <details id="myStats" style="margin:6px 0 12px"><summary style="font-size:19px;min-height:44px;display:flex;align-items:center;cursor:pointer">自分の稼げる時間帯・曜日・乗車地</summary><div id="myStatsBody"></div></details>
-    <details id="myMap" style="margin:6px 0 12px"><summary style="font-size:19px;min-height:44px;display:flex;align-items:center;cursor:pointer">自分の乗車地の地図</summary><div id="myMapBody"></div></details>
-    <details id="paySet" style="margin:6px 0 12px"><summary style="font-size:19px;min-height:44px;display:flex;align-items:center;cursor:pointer">給与の設定（歩合率・締め日・足切り）</summary><div id="paySetBody"></div></details>
     <div id="nipShift" class="chips"></div>
     <details id="myRoute" style="margin:6px 0 12px"><summary style="font-size:19px;min-height:44px;display:flex;align-items:center;cursor:pointer">走った道の再生（上で選んだ乗務）</summary><div id="myRouteBody"></div></details>
     <input type="file" id="nipFile" accept="image/*" multiple hidden>
@@ -149,7 +177,9 @@ body.hideyen #stats .yen b, body.hideyen #log .yen, body.hideyen #goal .yen, bod
     <button class="ghost" id="nipBtn" type="button">撮ってある写真から選ぶ</button>
     <div id="nipOut"></div>
   </section>
+  </div>
 
+  <div class="view" id="vRec2">
   <section>
     <div class="sub">この乗務の記録</div>
     <ol class="log" id="log"></ol>
@@ -160,6 +190,8 @@ body.hideyen #stats .yen b, body.hideyen #log .yen, body.hideyen #goal .yen, bod
     <button class="ghost" id="memoBtn" type="button">メモを書く</button>
   </div>
   <p class="note">押すたびに時刻と現在地が自動で付きます。走行中（時速10km超）は文字入力だけ止まります。</p>
+  </div>
+  <details id="paySet" hidden style="margin:6px 0 12px"><summary style="font-size:19px;min-height:44px;display:flex;align-items:center;cursor:pointer">給与の設定（細かい所：足切り未満の率など）</summary><div id="paySetBody"></div></details>
 </div>
 
 <script src="shim.js"></script>
@@ -266,9 +298,11 @@ function hideErr(){ $("err").hidden=true; }
 
 /* ---------- 今日の目標と進み具合 ---------- */
 const G={ target:null, hours:null, edit:false, loaded:false };
-async function goalLoad(){ if(!S.db) return; try{ const d=await S.db.collection("reports").doc("settings").get(); const x=d.exists?d.data():{}; G.target=x.target||null; G.hours=x.planHours||null; }catch(e){} G.loaded=true; render(); }
+async function goalLoad(){ if(!S.db) return; let x=null; try{ const d=await S.db.collection("reports").doc("settings").get(); x=d.exists?d.data():{}; G.set=x; G.target=x.target||null; G.hours=x.planHours||null; if(x.cutoff) N.cutoff=x.cutoff; if(x.rate) N.rate=x.rate; if(x.ashi!=null) N.ashi=x.ashi; if(x.ashiRate!=null) N.ashiRate=x.ashiRate; if(x.rest) N.rest=x.rest; }catch(e){} G.loaded=true; render(); viewRefresh();
+  // 初めて使う人（設定がまだ何もない人）には、はじめの設定を出す
+  if(x&&!x.setupDone&&!x.rate&&!x.cutoff&&!document.getElementById("setupOv")) setupOpen(false); }
 async function goalSave(t,h,keep){ G.target=t; if(h) G.hours=h; G.edit=!!keep; render();
-  try{ const ref=S.db.collection("reports").doc("settings"); const d=await ref.get(); const x=d.exists?d.data():{}; await ref.set({...x,target:t,planHours:G.hours||x.planHours||null}); toast("✓ 目標："+fmtYen(t)+"円"); }catch(e){ toast("保存できませんでした",false); } }
+  try{ const ref=S.db.collection("reports").doc("settings"); const d=await ref.get(); const x=d.exists?d.data():{}; await ref.set({...x,target:t,planHours:G.hours||x.planHours||null}); G.set={...x,target:t,planHours:G.hours||x.planHours||null}; toast("✓ 目標："+fmtYen(t)+"円"); }catch(e){ toast("保存できませんでした",false); } }
 async function goalMonth(id){ G.monthFor=id; if(!S.db) return;
   try{ const st=await S.db.collection("reports").doc("settings").get(); const x=st.exists?st.data():{}; if(x.cutoff) N.cutoff=x.cutoff; if(x.ashi!=null) N.ashi=x.ashi; if(x.ashiRate!=null) N.ashiRate=x.ashiRate;
     const sd=new Date(S.shift&&S.shift.start||Date.now()), ds=sd.getFullYear()+"-"+String(sd.getMonth()+1).padStart(2,"0")+"-"+String(sd.getDate()).padStart(2,"0");
@@ -322,9 +356,80 @@ function goalMonthRow(box,sales){
   const r=document.createElement("div"); r.style.cssText="font-size:16px;color:var(--muted);margin-top:6px;border-top:1px solid var(--line);padding-top:6px";
   const a=document.createElement("div"); a.className="yen"; a.textContent=m.label+"（"+(m.n+1)+"乗務目）の累計 "+fmtYen(inc)+"円"; r.append(a);
   if(N.ashi){ const b=document.createElement("div"); b.className="yen"; const left=N.ashi-ex; b.textContent=left>0?"足切り（税抜 "+fmtYen(N.ashi)+"円）まで あと "+fmtYen(left)+"円":"足切りクリア（税抜 "+fmtYen(ex)+"円）"; if(left<=0) b.style.color="var(--vacant)"; r.append(b); }
-  else { const b=document.createElement("div"); b.textContent="足切り額は「入庫後」→「給与の設定」で入れると、ここに残りが出ます。"; r.append(b); }
+  else { const b=document.createElement("div"); b.textContent="足切り額は「ホーム」→「設定を変える」で入れると、ここに残りが出ます。"; r.append(b); }
+  // 出番の予定と月の目標から、1回あたりの目安を出す
+  const p=period(ymd(new Date(S.shift.start)));
+  if(p){ const w=workLeft(p), mt=G.set&&G.set.monthTarget;
+    if(w.has){ const c=document.createElement("div"); c.textContent="出番 残り"+w.left+"回（今日を含む・全"+w.all+"回）"; r.append(c);
+      if(mt&&w.left>0){ const need=Math.max(0,mt-m.inc), per=Math.round(need/w.left/1000)*1000;
+        const c2=document.createElement("div"); c2.className="yen"; c2.textContent=need>0?"月の目標まで あと "+fmtYen(need)+"円 → 1回あたり 約"+fmtYen(per)+"円":"月の目標 達成！";
+        r.append(c2);
+        if(need>0&&G.target!==per&&per>0){ const u=btn("今日の目標を "+fmtYen(per)+"円にする","ghost",()=>goalSave(per)); u.dataset.free="1"; u.style.cssText="min-height:40px;font-size:15px;padding:0 10px;margin-top:4px"; r.append(u); } } }
+    else { const u=btn("出番の予定を入れる（残り回数と1回の目安が出ます）","ghost",()=>setupOpen(true)); u.dataset.free="1"; u.style.cssText="min-height:40px;font-size:15px;padding:0 10px;margin-top:4px"; r.append(u); } }
   box.append(r);
 }
+/* ---------- はじめの設定（締め日・歩合・足切り・出番日・月の目標） ---------- */
+// 設定は reports/settings にまとめて入れる。ほかの項目を消さないよう、いつも今の中身に足して保存する
+async function settingsPatch(p){ const ref=S.db.collection("reports").doc("settings"); const d=await ref.get(); const x=d.exists?d.data():{}; const n={...x,...p}; await ref.set(n); G.set=n; return n; }
+const ymd=x=>x.getFullYear()+"-"+String(x.getMonth()+1).padStart(2,"0")+"-"+String(x.getDate()).padStart(2,"0");
+function workLeft(p){ const days=(G.set&&G.set.workDays)||[]; const today=ymd(new Date()); const inP=days.filter(d=>d>=p.from&&d<=p.to); return {all:inP.length,left:inP.filter(d=>d>=today).length,has:inP.length>0}; }
+function setupOpen(only){
+  const old=document.getElementById("setupOv"); if(old) old.remove();
+  const x=G.set||{}; const st={cut:x.cutoff||N.cutoff||null, rate:x.rate?Math.round(x.rate*100):null, ashi:x.ashi||null, days:new Set(x.workDays||[]), mt:x.monthTarget||null, per:0};
+  const ov=document.createElement("div"); ov.id="setupOv"; ov.style.cssText="position:fixed;inset:0;z-index:4000;background:var(--bg);overflow:auto;padding:16px;padding-top:calc(16px + var(--sat,0px))";
+  const bx=document.createElement("div"); bx.style.cssText="max-width:560px;margin:0 auto;font-size:18px"; ov.append(bx); document.body.append(ov);
+  const draw=()=>{
+    bx.replaceChildren();
+    const h=(t,s)=>{ const e=document.createElement("div"); e.style.cssText="font-weight:700;margin:18px 0 6px"; e.textContent=t; bx.append(e); if(s){ const n=document.createElement("div"); n.className="note"; n.style.fontSize="15px"; n.textContent=s; bx.append(n);} };
+    const chips=(vals,cur,lab,set)=>{ const c=document.createElement("div"); c.className="chips"; vals.forEach(v=>{ const b=btn(lab(v),"",()=>{ set(v); draw(); }); b.dataset.free="1"; b.setAttribute("aria-pressed",String(cur===v)); c.append(b); }); bx.append(c); return c; };
+    const other=(c,label,cur,vals,set)=>{ const b=btn(cur!=null&&!vals.includes(cur)?label+"："+cur:"その他","",()=>{ const v=Number(String(prompt(label,cur||"")||"").replace(/[^0-9]/g,"")); if(v>0){ set(v); draw(); } }); b.dataset.free="1"; b.setAttribute("aria-pressed",String(cur!=null&&!vals.includes(cur))); c.append(b); };
+    const t=document.createElement("h2"); t.style.cssText="font-size:22px;margin:4px 0"; t.textContent=only?"出番の予定":"はじめの設定"; bx.append(t);
+    if(!only){
+      const n=document.createElement("div"); n.className="note"; n.style.fontSize="15px"; n.textContent="今月度の売上の累計・足切りまでの残り・1回あたりの目安を出すために使います。あとから「ホーム」の「設定を変える」で変えられます。"; bx.append(n);
+      h("締め日");
+      { const v=[10,15,20,25,31]; const c=chips(v,st.cut,x=>x===31?"末日":x+"日",x=>st.cut=x); other(c,"締め日（日）",st.cut,v,x=>st.cut=Math.min(31,x)); }
+      h("歩合率","税抜の営収に掛ける率");
+      { const v=[50,55,58,60,62,65]; const c=chips(v,st.rate,x=>x+"%",x=>st.rate=x); other(c,"歩合率（%）",st.rate,v,x=>st.rate=Math.min(100,x)); }
+      h("足切り額（月の税抜営収）","なければ「なし」");
+      { const v=[0,400000,450000,500000]; const c=chips(v,st.ashi||0,x=>x?fmtYen(x)+"円":"なし",x=>st.ashi=x); other(c,"足切り額（円）",st.ashi||0,v,x=>st.ashi=x); }
+      h("月の目標営収（税込）","なければ「なし」。1回あたりの目安を出します");
+      { const v=[0,600000,700000,800000,900000]; const c=chips(v,st.mt||0,x=>x?fmtYen(x)+"円":"なし",x=>st.mt=x); other(c,"月の目標営収（円）",st.mt||0,v,x=>st.mt=x); }
+    }
+    // 出番日のカレンダー（今月度・来月度）
+    N.cutoff=st.cut||N.cutoff||15;
+    const base=new Date(); const p0=period(ymd(base)); const nx=new Date(p0.to+"T12:00:00"); nx.setDate(nx.getDate()+1); const p1=period(ymd(nx)); const ps=[p0,p1]; const p=ps[st.per];
+    h("出番の日","乗務する日を押してください（もう一度押すと外れます）");
+    { const c=document.createElement("div"); c.className="chips"; ps.forEach((q,i)=>{ const b=btn(q.label.replace(/（.*/,""),"",()=>{ st.per=i; draw(); }); b.dataset.free="1"; b.setAttribute("aria-pressed",String(st.per===i)); c.append(b); }); bx.append(c); }
+    const g=document.createElement("div"); g.style.cssText="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-top:6px";
+    "日月火水木金土".split("").forEach((w,i)=>{ const e=document.createElement("div"); e.textContent=w; e.style.cssText="text-align:center;font-size:14px;color:"+(i===0?"#ff8a80":i===6?"#82b1ff":"var(--muted)"); g.append(e); });
+    const d0=new Date(p.from+"T12:00:00"), d1=new Date(p.to+"T12:00:00");
+    for(let i=0;i<d0.getDay();i++) g.append(document.createElement("div"));
+    for(let d=new Date(d0); d<=d1; d.setDate(d.getDate()+1)){ const k=ymd(d), on=st.days.has(k);
+      const b=document.createElement("button"); b.type="button"; b.dataset.free="1"; b.textContent=(d.getDate()===1||k===p.from?(d.getMonth()+1)+"/":"")+d.getDate();
+      b.style.cssText="min-height:48px;font-size:17px;border-radius:8px;border:1px solid var(--line);padding:0;"+(on?"background:#2e8bff;color:#fff;font-weight:700":"background:transparent;color:var(--fg)");
+      b.addEventListener("click",()=>{ if(st.days.has(k)) st.days.delete(k); else st.days.add(k); draw(); }); g.append(b); }
+    bx.append(g);
+    const cnt=[...st.days].filter(k=>k>=p.from&&k<=p.to).length;
+    { const e=document.createElement("div"); e.className="note"; e.style.fontSize="16px"; e.textContent=p.label.replace(/（.*/,"")+"の出番："+cnt+"回"; bx.append(e); }
+    { const c=document.createElement("div"); c.className="chips";
+      const alt=btn("1日おきで埋める","ghost",()=>{ const first=[...st.days].filter(k=>k>=p.from&&k<=p.to).sort()[0]||ymd(new Date()>d0?new Date():d0); for(let d=new Date(first+"T12:00:00"); d<=d1; d.setDate(d.getDate()+2)) st.days.add(ymd(d)); draw(); });
+      const clr=btn("この月度を全部外す","ghost",()=>{ [...st.days].forEach(k=>{ if(k>=p.from&&k<=p.to) st.days.delete(k); }); draw(); });
+      alt.dataset.free="1"; clr.dataset.free="1"; c.append(alt,clr); bx.append(c);
+      const hn=document.createElement("div"); hn.className="note"; hn.style.fontSize="14px"; hn.textContent="「1日おき」は、最初に押した日（なければ今日）から隔日で入れます。"; bx.append(hn); }
+    const err=document.createElement("div"); err.className="err"; err.style.fontSize="16px";
+    const ok=btn("保存する","vacant",async()=>{
+      if(!only&&(!st.cut||!st.rate)){ err.textContent="締め日と歩合率を選んでください"; return; }
+      const patch={workDays:[...st.days].sort(), setupDone:true};
+      if(!only){ Object.assign(patch,{cutoff:st.cut,rate:st.rate/100,ashi:st.ashi||0,monthTarget:st.mt||null}); N.rate=st.rate/100; N.cutoff=st.cut; N.ashi=st.ashi||0; }
+      try{ await settingsPatch(patch); toast("✓ 保存しました"); ov.remove(); G.monthFor=null; render(); viewRefresh(); }catch(e){ err.textContent="保存できませんでした。電波のあるところでもう一度押してください"; } });
+    ok.dataset.free="1"; ok.style.cssText="width:100%;margin-top:16px";
+    bx.append(err,ok);
+    const later=btn(only?"閉じる":"あとで入れる","ghost",async()=>{ ov.remove(); if(!only){ try{ await settingsPatch({setupDone:true}); }catch(e){} } });
+    later.dataset.free="1"; later.style.cssText="width:100%;margin-top:8px"; bx.append(later);
+  };
+  draw();
+}
+
 
 /* ---------- render ---------- */
 function btn(label, cls, fn){ const b=document.createElement("button"); b.type="button"; b.textContent=label; if(cls) b.className=cls; b.addEventListener("click",fn); return b; }
@@ -537,7 +642,127 @@ async function ask(){
 
 
 /* ---------- 日報 ---------- */
-function setTab(after){ document.body.classList.toggle("after",after); $("tabRec").classList.toggle("on",!after); $("tabAfter").classList.toggle("on",after); if(after&&S.db) nipLoad(); window.scrollTo(0,0); }
+function setTab(after){ setView(after?"after":"rec"); }
+/* ---------- 画面の切り替え（ホーム・乗務・入庫・カレンダー・分析） ---------- */
+const V={cur:null, calP:null, calDay:null, data:null, dataAt:0, first:true};
+function setView(v){ V.cur=v; document.body.dataset.v=v; document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("on",b.dataset.v===v));
+  window.scrollTo(0,0);
+  if(v==="ana") $("myStats").open=true;
+  if((v==="after"||v==="ana")&&S.db) nipLoad();
+  if(v==="home"||v==="cal"){ V.dataAt=0; viewRefresh(); } }
+function viewRefresh(){ if(V.cur==="home") homeRender(); else if(V.cur==="cal") calRender(); }
+const mk=(tag,css,txt,cls)=>{ const e=document.createElement(tag); if(css) e.style.cssText=css; if(txt!=null) e.textContent=txt; if(cls) e.className=cls; return e; };
+const wk=k=>"日月火水木金土"[new Date(k+"T12:00:00").getDay()];
+const mdk=k=>{ const d=new Date(k+"T12:00:00"); return (d.getMonth()+1)+"/"+d.getDate()+"（"+wk(k)+"）"; };
+const man=v=>v>=10000?(Math.round(v/1000)/10)+"万":v>0?fmtYen(v):"";
+// 日ごとの乗務（日報があれば日報、なければアプリの記録）をまとめる
+async function dayData(){
+  if(!S.db) return {};
+  if(V.data&&Date.now()-V.dataAt<60000) return V.data;
+  let reps=[],shifts=[],evs=[];
+  try{ reps=(await S.db.collection("reports").get()).docs.filter(d=>d.id!=="settings").map(d=>({id:d.id,...d.data()})); }catch(e){}
+  try{ shifts=(await S.db.collection("shifts").get()).docs.map(d=>({id:d.id,...d.data()})); }catch(e){}
+  try{ evs=(await S.db.collection("events").get()).docs.map(d=>d.data()); }catch(e){}
+  const days={}, add=(k,o)=>{ (days[k]=days[k]||[]).push(o); }, have=new Set(reps.map(r=>r.id));
+  reps.forEach(r=>{ if(!r.date) return; const t=r.total!=null?Number(r.total)||0:(r.rides||[]).reduce((a,x)=>a+(Number(x.fare)||0),0);
+    add(r.date,{id:r.id,inc:t,ex:r.total_ex||Math.round(t/1.1),rides:r.count!=null?r.count:(r.rides||[]).length,hours:r.hours||null,start:r.start||null,end:r.end||null,rep:true}); });
+  shifts.forEach(sh=>{ if(!sh.start||have.has(sh.id)) return; const my=evs.filter(e=>e.shift===sh.id), rd=my.filter(e=>e.type==="dropoff");
+    const t=rd.reduce((a,e)=>a+(Number(e.amount)||0),0)+my.filter(e=>e.type==="dispatch_cancel").reduce((a,e)=>a+(Number(e.fee)||0),0);
+    add(ymd(new Date(sh.start)),{id:sh.id,inc:t,ex:Math.round(t/1.1),rides:rd.length,hours:sh.end?(sh.end-sh.start)/3600000:null,start:hhmm(sh.start),end:sh.end?hhmm(sh.end):null,live:!sh.end,rep:false}); });
+  V.data=days; V.dataAt=Date.now(); return days; }
+function monthSum(p,days){ let inc=0,ex=0,n=0,hrs=0; Object.keys(days).forEach(k=>{ if(k<p.from||k>p.to) return; days[k].forEach(x=>{ inc+=x.inc; ex+=x.ex; if(x.inc>0||x.rep) n++; if(x.hours) hrs+=x.hours; }); }); return {inc,ex,n,hrs}; }
+function kv(box,k,v,yen,color){ const r=mk("div",null,null,"kv"); const a=mk("span",null,k), b=mk("b",color?"color:"+color:null,v); if(yen) b.className="yv"; r.append(a,b); box.append(r); return r; }
+function goShift(id){ N.pick=id; setView("after"); setTimeout(()=>{ try{ nipRender(); nipShowSaved(id); }catch(e){} },300); }
+async function homeRender(){
+  const box=$("vHome"); if(!box) return;
+  if(!S.db){ box.replaceChildren(mk("p","font-size:19px","読み込み中…","note")); return; }
+  const days=await dayData(); if(V.cur!=="home") return;
+  const ps=V.ps||(V.ps=$("paySet"));
+  box.replaceChildren();
+  const today=ymd(new Date()), set=G.set||{}, wd=new Set(set.workDays||[]);
+  // 今の状態と出庫ボタン
+  { const c=mk("div",null,null,"card");
+    c.append(mk("div","font-size:24px;font-weight:800",S.shift?"乗務中（"+hm(Date.now()-S.shift.start)+"）":wd.has(today)?"今日は出番の日です":"今日は乗務していません"));
+    const go=btn(S.shift?"乗務の画面に戻る":"出庫する","vacant",async()=>{ if(!S.shift){ await record("shift_start"); } setView("rec"); });
+    go.dataset.free="1"; go.style.cssText="width:100%;margin-top:10px;min-height:72px;font-size:24px"; c.append(go);
+    if(!S.shift){ const n=mk("div","font-size:15px;margin-top:6px","押すと出庫を記録して、乗務の画面に切り替わります。","note"); c.append(n); }
+    box.append(c); }
+  // 今月度
+  const p=period(today);
+  if(p){ const m=monthSum(p,days), w=workLeft(p), mt=set.monthTarget, c=mk("div",null,null,"card");
+    c.append(mk("h3",null,p.label));
+    kv(c,"営収（税込）・"+m.n+"乗務",fmtYen(m.inc)+"円",true);
+    if(m.hrs>0.5) kv(c,"営収/h",fmtYen(Math.round(m.inc/m.hrs))+"円",true);
+    if(N.ashi){ const left=N.ashi-m.ex; kv(c,left>0?"足切り（税抜 "+fmtYen(N.ashi)+"円）まで":"足切り",left>0?"あと "+fmtYen(left)+"円":"クリア",true,left>0?null:"var(--vacant)"); }
+    const rate=(N.ashi&&m.ex<N.ashi&&N.ashiRate)?N.ashiRate:(N.rate||set.rate||0.6);
+    kv(c,"歩合の見込み（"+Math.round(rate*100)+"%）",fmtYen(Math.round(m.ex*rate))+"円",true);
+    if(w.has){ kv(c,"出番","残り "+w.left+"回（全"+w.all+"回）");
+      if(mt){ const need=Math.max(0,mt-m.inc); kv(c,"月の目標 "+fmtYen(mt)+"円まで",need>0?"あと "+fmtYen(need)+"円":"達成！",true,need>0?null:"var(--vacant)");
+        if(need>0&&w.left>0) kv(c,"1回あたりの目安","約 "+fmtYen(Math.round(need/w.left/1000)*1000)+"円",true); } }
+    else { const u=btn("出番の予定を入れる（残り回数と1回の目安が出ます）","ghost",()=>setupOpen(true)); u.dataset.free="1"; u.style.cssText="width:100%;margin-top:8px"; c.append(u); }
+    c.append(mk("div","font-size:15px;margin-top:6px","金額は押すと5秒だけ見えます。日報がない乗務は、アプリで入れた降車の金額だけで数えています。","note"));
+    box.append(c); }
+  // 次の出番
+  { const next=[...wd].filter(d=>d>today).sort().slice(0,5); const c=mk("div",null,null,"card");
+    c.append(mk("h3",null,"次の出番"));
+    c.append(mk("div",null,next.length?next.map(mdk).join("・"):"予定が入っていません"));
+    const u=btn(next.length?"出番の予定を直す":"出番の予定を入れる","ghost",()=>setupOpen(true)); u.dataset.free="1"; u.style.cssText="width:100%;margin-top:8px"; c.append(u);
+    box.append(c); }
+  // 最近の乗務
+  { const ks=Object.keys(days).sort().reverse().slice(0,3);
+    if(ks.length){ const c=mk("div",null,null,"card"); c.append(mk("h3",null,"最近の乗務"));
+      ks.forEach(k=>days[k].forEach(x=>{ const b=btn("","ghost",()=>goShift(x.id)); b.dataset.free="1"; b.append(mdk(k)+"　",x.live?"乗務中":mk("span",null,man(x.inc)+"円","yv"),"・"+x.rides+"回"); b.style.cssText="width:100%;margin-top:6px;justify-content:flex-start;text-align:left"; c.append(b); }));
+      c.append(mk("div","font-size:15px;margin-top:6px","押すと、その日の日報・走った道が見られます。ほかの日は「カレンダー」から。","note"));
+      box.append(c); } }
+  // 設定
+  { const c=mk("div",null,null,"card"); c.append(mk("h3",null,"設定"));
+    c.append(mk("div","font-size:16px","締め日 "+(N.cutoff===31?"末日":(N.cutoff||15)+"日")+"・歩合 "+Math.round((N.rate||0.6)*100)+"%・足切り "+(N.ashi?fmtYen(N.ashi)+"円":"なし")+"・月の目標 "+(set.monthTarget?fmtYen(set.monthTarget)+"円":"なし"),"note"));
+    const u=btn("設定を変える（締め日・歩合・足切り・出番・目標）","ghost",()=>setupOpen(false)); u.dataset.free="1"; u.style.cssText="width:100%;margin-top:8px"; c.append(u);
+    ps.hidden=false; c.append(ps); paySetRender();
+    box.append(c); }
+}
+async function calRender(){
+  const box=$("vCal"); if(!box) return;
+  if(!S.db){ box.replaceChildren(mk("p","font-size:19px","読み込み中…","note")); return; }
+  const days=await dayData(); if(V.cur!=="cal") return;
+  box.replaceChildren();
+  const today=ymd(new Date()), set=G.set||{}, wd=new Set(set.workDays||[]);
+  if(!V.calP) V.calP=today; const p=period(V.calP); if(!p) return;
+  if(!V.calDay||V.calDay<p.from||V.calDay>p.to) V.calDay=(today>=p.from&&today<=p.to)?today:p.to;
+  // 月度の切り替え
+  { const r=mk("div","display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center");
+    const pv=btn("◀ 前","ghost",()=>{ const d=new Date(p.from+"T12:00:00"); d.setDate(d.getDate()-1); V.calP=ymd(d); calRender(); });
+    const nx=btn("次 ▶","ghost",()=>{ const d=new Date(p.to+"T12:00:00"); d.setDate(d.getDate()+1); V.calP=ymd(d); calRender(); });
+    pv.dataset.free="1"; nx.dataset.free="1"; pv.style.minHeight=nx.style.minHeight="52px";
+    r.append(pv,mk("div","text-align:center;font-size:17px;font-weight:800;line-height:1.3",p.label.replace("（","\n（")),nx); r.lastChild.previousSibling.style.whiteSpace="pre-line"; box.append(r); }
+  const m=monthSum(p,days), w=workLeft(p);
+  { const c=mk("div","font-size:18px;text-align:center"); const a=mk("span",null,"営収 "+fmtYen(m.inc)+"円","yv"); c.append(a,document.createTextNode("・"+m.n+"乗務"+(w.has?"・出番 残り"+w.left+"回":""))); box.append(c); }
+  const g=mk("div",null,null,"calg");
+  "日月火水木金土".split("").forEach((x,i)=>{ const e=mk("div",i===0?"color:#ff8a80":i===6?"color:#82b1ff":null,x,"w"); g.append(e); });
+  const d0=new Date(p.from+"T12:00:00"), d1=new Date(p.to+"T12:00:00");
+  for(let i=0;i<d0.getDay();i++) g.append(document.createElement("div"));
+  for(let d=new Date(d0); d<=d1; d.setDate(d.getDate()+1)){ const k=ymd(d), ds=days[k]||[], inc=ds.reduce((a,x)=>a+x.inc,0);
+    const b=document.createElement("button"); b.type="button"; b.dataset.free="1"; b.dataset.k=k;
+    b.append(mk("span",null,(d.getDate()===1||k===p.from?(d.getMonth()+1)+"/":"")+d.getDate()));
+    const sm=document.createElement("small"); sm.textContent=ds.length?(inc>0?man(inc):"●"):""; sm.className="yv"; b.append(sm);
+    if(wd.has(k)) b.classList.add("plan"); if(ds.length) b.classList.add("done"); if(k===today) b.classList.add("today"); if(k===V.calDay) b.classList.add("sel");
+    b.addEventListener("click",()=>{ V.calDay=k; calRender(); }); g.append(b); }
+  box.append(g);
+  box.append(mk("div","font-size:15px","青い枠＝出番の予定　塗り＝乗務した日　数字＝その日の営収（押すと5秒見えます）","note"));
+  // 選んだ日の中身
+  { const k=V.calDay, ds=days[k]||[], c=mk("div",null,null,"card");
+    c.append(mk("h3",null,mdk(k)+(wd.has(k)?"　出番":"")));
+    if(!ds.length) c.append(mk("div","font-size:17px","この日の記録はありません。","note"));
+    ds.forEach(x=>{ const t=mk("div","margin-top:6px");
+      kv(t,x.rep?"日報":"アプリの記録",(x.start||"")+(x.end?"〜"+x.end:x.live?"〜乗務中":""));
+      kv(t,"営収",fmtYen(x.inc)+"円",true); kv(t,"乗車",x.rides+"回");
+      if(x.hours>0.2) kv(t,"営収/h",fmtYen(Math.round(x.inc/x.hours))+"円",true);
+      const b=btn("この日の日報・走った道を見る","ghost",()=>goShift(x.id)); b.dataset.free="1"; b.style.cssText="width:100%;margin-top:8px"; t.append(b); c.append(t); });
+    if(k>=today||!ds.length){ const on=wd.has(k); const u=btn(on?"出番から外す":"この日を出番にする","ghost",async()=>{ const s2=new Set((G.set&&G.set.workDays)||[]); if(on) s2.delete(k); else s2.add(k);
+        try{ await settingsPatch({workDays:[...s2].sort()}); toast(on?"✓ 出番から外しました":"✓ 出番にしました"); G.monthFor=null; calRender(); }catch(e){ toast("保存できませんでした",false); } });
+      u.dataset.free="1"; u.style.cssText="width:100%;margin-top:8px"; c.append(u); }
+    box.append(c); }
+}
 const N={ shifts:[], pick:null, busy:false, rest:null, limits:null, cam:[] };
 function camRender(){ const box=$("camState"); box.replaceChildren(); if(!N.cam.length){ $("camBtn").textContent="カメラで日報を撮る"; return; }
   $("camBtn").textContent=(N.cam.length+1)+"枚目を撮る";
@@ -702,7 +927,7 @@ function nipShow(doc,evs){
     if(!N.rest){
       const q=document.createElement("p"); q.className="note"; q.style.fontSize="19px"; q.textContent="この会社の日報の「休」は、主に何ですか？（最初の1回だけ聞きます）"; w.append(q);
       const ch=document.createElement("div"); ch.className="chips";
-      [["wait","付け待ち"],["break","休憩・食事"],["both","両方まざる"]].forEach(([k,l])=>{ const b=btn(l,"",async()=>{ N.rest=k; try{ await S.db.collection("reports").doc("settings").set({rest:k,rate:N.rate||0.6,cutoff:N.cutoff||15,ashi:N.ashi||0,ashiRate:N.ashiRate||null,target:G.target||null,planHours:G.hours||null}); }catch(e){} nipShow(doc,evs); }); b.dataset.free="1"; ch.append(b); });
+      [["wait","付け待ち"],["break","休憩・食事"],["both","両方まざる"]].forEach(([k,l])=>{ const b=btn(l,"",async()=>{ N.rest=k; try{ await settingsPatch({rest:k,rate:N.rate||0.6,cutoff:N.cutoff||15,ashi:N.ashi||0,ashiRate:N.ashiRate||null,target:G.target||null,planHours:G.hours||null}); }catch(e){} nipShow(doc,evs); }); b.dataset.free="1"; ch.append(b); });
       w.append(ch);
     } else {
       const n=document.createElement("p"); n.className="note"; n.style.fontSize="17px"; n.textContent="「休」は "+({wait:"付け待ち",break:"休憩・食事",both:"付け待ちと食事がまざる"}[N.rest])+" として扱います。"; w.append(n);
@@ -934,8 +1159,9 @@ function paySetRender(){
     const r=Number($("psRate").value), c=Number($("psCut").value), a=Number($("psAshi").value)||0, ar=Number($("psAshiRate").value)||null;
     if(!(r>0&&r<=100)||!(c>=1&&c<=31)){ toast("歩合率と締め日を確かめてください",false); return; }
     N.rate=r/100; N.cutoff=c; N.ashi=a; N.ashiRate=ar?ar/100:null;
-    try{ await S.db.collection("reports").doc("settings").set({rest:N.rest||null,rate:N.rate,cutoff:N.cutoff,ashi:N.ashi,ashiRate:N.ashiRate,target:G.target||null,planHours:G.hours||null}); toast("✓ 設定を保存しました"); $("paySet").open=false; G.monthFor=null; if(N.pick) nipShowSaved(N.pick); }catch(e){ toast("保存できませんでした",false); } });
+    try{ await settingsPatch({rest:N.rest||null,rate:N.rate,cutoff:N.cutoff,ashi:N.ashi,ashiRate:N.ashiRate,target:G.target||null,planHours:G.hours||null}); toast("✓ 設定を保存しました"); $("paySet").open=false; G.monthFor=null; if(N.pick) nipShowSaved(N.pick); }catch(e){ toast("保存できませんでした",false); } });
   sv.dataset.free="1"; sv.style.width="100%"; b.append(sv);
+  const wd=btn("出番の予定・月の目標を入れる","ghost",()=>setupOpen(false)); wd.dataset.free="1"; wd.style.cssText="width:100%;margin-top:8px"; b.append(wd);
 }
 
 /* ---------- boot ---------- */
@@ -945,7 +1171,8 @@ function watchShift(){
     const d=snap.docs[0]; const sh= d && !d.data().end ? {id:d.id,...d.data()} : null;
     const changed=(sh&&sh.id)!==(S.shift&&S.shift.id);
     S.shift=sh;
-    if(changed){
+    if(V.first){ V.first=false; if(sh&&V.cur==="home") setView("rec"); }
+    if(changed){ V.dataAt=0;
       if(unsubEvents){ unsubEvents(); unsubEvents=null; }
       S.events=[];
       if(sh){ unsubEvents=S.db.collection("events").where("shift","==",sh.id).orderBy("at").onSnapshot(s=>{ S.events=s.docs.map(x=>({id:x.id,...x.data()})); render(); },e=>showErr("記録を読めません（"+e.code+"）。")); }
@@ -960,11 +1187,13 @@ function watchShift(){
     const apply=()=>{ document.body.classList.toggle("hideyen",!show); $("yenTip").textContent= show ? "金額を出しています（数字を長押しでぼかしに戻す）" : "金額はぼかしています。数字を押すと5秒だけ見えます（長押しでずっと表示）"; };
     let t=null, lp=null;
     $("goal").addEventListener("click",e=>{ if(show||e.target.closest("button")) return; document.body.classList.remove("hideyen"); clearTimeout(t); t=setTimeout(()=>{ if(!show) document.body.classList.add("hideyen"); },5000); });
+    ["vHome","vCal"].forEach(id=>$(id).addEventListener("click",e=>{ if(show||!e.target.closest(".yv")) return; document.body.classList.remove("hideyen"); clearTimeout(t); t=setTimeout(()=>{ if(!show) document.body.classList.add("hideyen"); },5000); }));
     $("stats").addEventListener("click",()=>{ if(show) return; document.body.classList.remove("hideyen"); clearTimeout(t); t=setTimeout(()=>{ if(!show) document.body.classList.add("hideyen"); },5000); });
     $("stats").addEventListener("pointerdown",()=>{ lp=setTimeout(()=>{ show=!show; try{ localStorage.setItem("showYen",show?"1":"0"); }catch(e){} apply(); try{ navigator.vibrate&&navigator.vibrate(40); }catch(e){} },800); });
     ["pointerup","pointerleave","pointercancel"].forEach(ev=>$("stats").addEventListener(ev,()=>clearTimeout(lp)));
     apply(); }
-  $("tabRec").addEventListener("click",()=>setTab(false)); $("tabAfter").addEventListener("click",()=>setTab(true));
+  document.querySelectorAll("#tabs button").forEach(b=>b.addEventListener("click",()=>setView(b.dataset.v)));
+  setView("home");
   $("memoBtn").addEventListener("click",()=>{ if(!S.shift){ showErr("出庫してからメモを書けます。"); return; } if(moving()) return; S.sheet="memo"; render(); });
   setInterval(render,30000);
   try{ navigator.wakeLock && navigator.wakeLock.request("screen").catch(()=>{}); }catch(e){}
