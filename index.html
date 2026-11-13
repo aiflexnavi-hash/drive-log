@@ -168,7 +168,7 @@ const TYPE = {
   shift_start:"出庫", shift_end:"入庫（乗務終了）", return_start:"帰庫開始", wait_start:"付け待ち開始", wait_end:"付け待ち離脱",
   nagashi_start:"流し開始", dispatch_accept:"アプリ受注（迎車へ）", dispatch_arrive:"迎車先に到着", dispatch_cancel:"迎車キャンセル", stand_start:"乗り場に並ぶ", stand_pos:"乗り場の順番", wait_pos:"付け待ちの順番", other_count:"周りの空車", stand_behind:"後ろの台数", stand_end:"乗り場を離れる",
   pickup:"乗車", dropoff:"降車", taxi_many:"空車 多い", taxi_few:"空車 少ない",
-  people_many:"人通り 多い", people_few:"人通り 少ない", memo:"メモ"
+  people_many:"人通り 多い", people_few:"人通り 少ない", seen_hail:"手上げ客を見た", seen_rank:"乗り場に客待ち", memo:"メモ"
 };
 const APPS = ["GO","DiDi","S.RIDE","Uber","無線","その他"];
 const PAY = ["現金","カード","QR","アプリ","チケット"];
@@ -384,6 +384,7 @@ function render(){
     }
     if(st==="hired"){ g.append(btn("降車","vacant",()=>record("dropoff",{amount:null})), btn("降車（金額も入れる）","",()=>{S.sheet="dropoff";S.amount="";S.pay=null;render();})); }
     if(st!=="off"){
+      g.append(btn("手上げ客を見た","small",()=>record("seen_hail")), btn("乗り場に客待ち","small",()=>record("seen_rank")));
       g.append(btn("空車 多い","small",()=>record("taxi_many")), btn("空車 少ない","small",()=>record("taxi_few")),
                btn("人通り 多い","small",()=>record("people_many")), btn("人通り 少ない","small",()=>record("people_few")));
       if(st!=="hired"){ const ret=S.events.some(e=>e.type==="return_start");
