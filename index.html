@@ -1188,12 +1188,12 @@ async function myStatsRender(){
     const st=toMs(r.date,r.start), en=st!=null?toMs(r.date,r.end,st):null;
     if(st!=null&&en!=null&&en>st) duty.push({st,en,date:r.date});
     let prev=st;
-    r.rides.forEach(x=>{ let t=toMs(r.date,x.on,prev!=null?prev-3*3600000:null); if(t==null||!(Number(x.fare)>0)) return; prev=t; rides.push({t,fare:Number(x.fare),from:x.from||null,date:r.date}); });
+    r.rides.forEach(x=>{ let t=toMs(r.date,x.on,prev!=null?prev-3*3600000:null); if(t==null||!(Number(x.fare)>0)) return; prev=t; rides.push({t,fare:Number(x.fare),from:x.from||null,kind:x.kind||null,pay:x.pay||null,app:x.app||null,date:r.date}); });
     if(!r.id.startsWith("past-")) seen.add(r.id); });
   shifts.forEach(sh=>{ if(seen.has(sh.id)||!sh.start||!sh.end) return;
     const d=new Date(sh.start), date=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
     const my=evs.filter(e=>e.shift===sh.id).sort((a,b)=>a.at-b.at); let on=null;
-    const rs=[]; my.forEach(e=>{ if(e.type==="pickup") on=e; if(e.type==="dropoff"&&Number(e.amount)>0){ rs.push({t:on?on.at:e.at,fare:Number(e.amount),from:null,date}); on=null; } });
+    const rs=[]; my.forEach(e=>{ if(e.type==="pickup") on=e; if(e.type==="dropoff"&&Number(e.amount)>0){ rs.push({t:on?on.at:e.at,fare:Number(e.amount),from:on&&on.place||null,kind:on&&on.kind||null,app:on&&on.app||null,pay:e.pay||null,date}); on=null; } });
     if(!rs.length) return; duty.push({st:sh.start,en:sh.end,date}); rides.push(...rs); });
   if(!duty.length){ box.append(note("まだデータがありません。日報を読み込むか、記録した乗務が増えると出ます。")); return; }
   box.append(note(duty.length+"乗務・"+rides.length+"乗車の記録から出しています（自分のデータだけ）。回数が少ない所は、たまたまの可能性があります。"));
@@ -1218,7 +1218,7 @@ async function myStatsRender(){
   const wOrder=[1,2,3,4,5,6,0].filter(w=>wN[w]);
   const wTop=wOrder.filter(w=>wN[w]>=2).sort((a,b)=>wS[b]/wH[b]-wS[a]/wH[a]).slice(0,2);
   box.append(sub("出庫日の曜日ごと"));
-  box.append(tbl(["曜日","乗務","1乗務の営収","営収/h"],wOrder.map(w=>({hot:wTop.includes(w),cells:[wd[w]+"曜",wN[w]+"回",fmtYen(Math.round(wS[w]/wN[w]))+"円",fmtYen(Math.round(wS[w]/wH[w]))+"円"]}))));
+  box.append(tbl(["曜日","乗務","1乗務の営収","営収/h"],wOrder.map(w=>({hot:wTop.includes(w),cells:[wd[w]+"曜",wN[w]+"回",fmtYen(Math.round(wS[w]/wN[w]))+"円",(wH[w]>=1?fmtYen(Math.round(wS[w]/wH[w]))+"円":"–")]}))));
   // 乗車地（日報の地名。2回以上のところだけ）
   const pl={}; rides.forEach(r=>{ if(!r.from) return; const k=String(r.from).trim(); (pl[k]=pl[k]||{n:0,s:0}); pl[k].n++; pl[k].s+=r.fare; });
   const ps=Object.entries(pl).filter(([k,v])=>v.n>=2).sort((a,b)=>b[1].n-a[1].n||b[1].s-a[1].s).slice(0,10);
@@ -1226,6 +1226,27 @@ async function myStatsRender(){
   if(ps.length) box.append(tbl(["乗車地","回数","平均運賃"],ps.map(([k,v])=>({cells:[k,v.n+"回",fmtYen(Math.round(v.s/v.n))+"円"]}))));
   else box.append(note("乗車地が分かるのは、乗車ごとの明細がある日報だけです。まだ2回以上の場所がありません。"));
   box.append(note("緑の行は、その中で営収/h が高い所です（勤務3時間以上・2乗務以上の所から選んでいます）。"));
+  // 乗り方・支払い・配車アプリの比率
+  const ratio=(title,key,label)=>{ const m={}; let n=0; rides.forEach(r=>{ const k=r[key]; if(!k) return; n++; (m[k]=m[k]||{n:0,s:0}); m[k].n++; m[k].s+=r.fare; });
+    box.append(sub(title)); if(!n){ box.append(note("まだ記録がありません。"+label)); return; }
+    box.append(tbl(["",  "回数","割合","平均運賃"],Object.entries(m).sort((a,b)=>b[1].n-a[1].n).map(([k,v])=>({cells:[k,v.n+"回",Math.round(v.n/n*100)+"%",fmtYen(Math.round(v.s/v.n))+"円"]})))); };
+  ratio("乗り方の比率","kind","乗車ボタンで記録すると出ます。");
+  ratio("支払いの比率","pay","降車で支払い方法を選ぶと出ます。");
+  ratio("配車アプリの比率","app","迎車でアプリを選ぶと出ます。");
+  // 年間・年度のまとめ（日報とアプリの記録の合計）
+  try{ const days=await dayData(); const ym={}, yr={}, fy={};
+    Object.keys(days).forEach(k=>{ const p=period(k); if(!p) return; const lab=p.to.slice(0,7);
+      days[k].forEach(x=>{ if(!(x.inc>0)) return; [[ym,lab],[yr,k.slice(0,4)],[fy,(Number(k.slice(5,7))>=4?Number(k.slice(0,4)):Number(k.slice(0,4))-1)+"年度"]].forEach(([o,key])=>{ o[key]=o[key]||{inc:0,n:0,h:0}; o[key].inc+=x.inc; o[key].n++; o[key].h+=x.hours||0; }); }); });
+    const row=(k,v)=>({cells:[k,v.n+"回",fmtYen(v.inc)+"円",v.h>=1?fmtYen(Math.round(v.inc/v.h))+"円":"–"]});
+    box.append(sub("月度ごと（締め日で区切り）"));
+    const ks=Object.keys(ym).sort().reverse().slice(0,24);
+    if(ks.length) box.append(tbl(["月度","乗務","営収（税込）","営収/h"],ks.map(k=>row(Number(k.slice(5))+"月度（"+k.slice(0,4)+"）",ym[k]))));
+    box.append(sub("年ごと（1〜12月）"));
+    box.append(tbl(["年","乗務","営収（税込）","営収/h"],Object.keys(yr).sort().reverse().map(k=>row(k+"年",yr[k]))));
+    box.append(sub("年度ごと（4月〜翌3月）"));
+    box.append(tbl(["年度","乗務","営収（税込）","営収/h"],Object.keys(fy).sort().reverse().map(k=>row(k,fy[k]))));
+    box.append(note("日の区切りは出庫日です。年と年度は、その日の日付で数えています。営収は運賃だけで、チップ・キャンセル代等・高速料金は入っていません。"));
+  }catch(e){}
 }
 /* ---------- 自分の乗車地の地図（自分の記録だけ） ---------- */
 const MP={map:null,group:null,range:0,hour:false,p:null,tileErr:0};
@@ -1298,6 +1319,13 @@ async function routeRender(){
   const b=trackBuf(); if(b&&b.shift===id) pts.push(...b.pts);
   pts.sort((a,b)=>a[0]-b[0]); pts=pts.filter((x,i)=>!i||x[0]!==pts[i-1][0]);
   let evs=[]; try{ evs=(await S.db.collection("events").where("shift","==",id).get()).docs.map(d=>d.data()).filter(e=>e.lat!=null).sort((a,b)=>a.at-b.at); }catch(e){}
+  { let km=0, hk=0; const hired=[]; let on=null; evs.forEach(e=>{ if(e.type==="pickup") on=e.at; if(e.type==="dropoff"&&on){ hired.push([on,e.at]); on=null; } });
+    const R=6371, rad=x=>x*Math.PI/180;
+    for(let i=1;i<pts.length;i++){ const a=pts[i-1], b2=pts[i]; if(b2[0]-a[0]>600000) continue;
+      const dl=rad(b2[1]-a[1]), dg=rad(b2[2]-a[2]); const h=Math.sin(dl/2)**2+Math.cos(rad(a[1]))*Math.cos(rad(b2[1]))*Math.sin(dg/2)**2; const d=2*R*Math.asin(Math.sqrt(h));
+      if(d>5) continue; km+=d; if(hired.some(([s,e])=>a[0]>=s&&b2[0]<=e)) hk+=d; }
+    if(km>0.1){ const t=mk("div","font-size:20px;font-weight:700;margin:6px 0","走行距離 約"+km.toFixed(1)+" km（実車 約"+hk.toFixed(1)+" km・空車 約"+(km-hk).toFixed(1)+" km）"); box.append(t);
+      box.append(note("アプリを開いていた間の道から出した目安です。画面を消していた間は数えていません。")); } }
   if(pts.length<2){ box.append(note("この乗務には、走った道の記録がありません。今夜から、乗務中にアプリを開いている間の道を残します（画面を消している間は残りません）。")); if(!evs.length) return; }
   const el=document.createElement("div"); el.id="routeEl"; el.style.cssText="height:380px;border-radius:10px;border:1px solid var(--line);margin:8px 0;background:#1c252c"; box.append(el);
   const ctl=document.createElement("div"); ctl.className="chips"; box.append(ctl);
