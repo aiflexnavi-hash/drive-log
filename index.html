@@ -267,7 +267,7 @@ function hideErr(){ $("err").hidden=true; }
 /* ---------- 今日の目標と進み具合 ---------- */
 const G={ target:null, hours:null, edit:false, loaded:false };
 async function goalLoad(){ if(!S.db) return; try{ const d=await S.db.collection("reports").doc("settings").get(); const x=d.exists?d.data():{}; G.target=x.target||null; G.hours=x.planHours||null; }catch(e){} G.loaded=true; render(); }
-async function goalSave(t,h){ G.target=t; if(h) G.hours=h; G.edit=false; render();
+async function goalSave(t,h,keep){ G.target=t; if(h) G.hours=h; G.edit=!!keep; render();
   try{ const ref=S.db.collection("reports").doc("settings"); const d=await ref.get(); const x=d.exists?d.data():{}; await ref.set({...x,target:t,planHours:G.hours||x.planHours||null}); toast("✓ 目標："+fmtYen(t)+"円"); }catch(e){ toast("保存できませんでした",false); } }
 async function goalMonth(id){ G.monthFor=id; if(!S.db) return;
   try{ const st=await S.db.collection("reports").doc("settings").get(); const x=st.exists?st.data():{}; if(x.cutoff) N.cutoff=x.cutoff; if(x.ashi!=null) N.ashi=x.ashi; if(x.ashiRate!=null) N.ashiRate=x.ashiRate;
@@ -291,11 +291,14 @@ function goalRender(sales){
   if(!G.target||G.edit){
     const t=document.createElement("div"); t.style.fontWeight="700"; t.textContent="今日の目標営収は？"; box.append(t);
     const c=document.createElement("div"); c.className="chips";
-    [30000,35000,40000,45000,50000,60000].forEach(v=>{ const b=btn(fmtYen(v),"",()=>goalSave(v)); b.dataset.free="1"; if(G.target===v) b.setAttribute("aria-pressed","true"); c.append(b); });
-    const o=btn("その他","",()=>{ const v=Number(String(prompt("目標営収（円）","")||"").replace(/[^0-9]/g,"")); if(v>0) goalSave(v); }); o.dataset.free="1"; c.append(o);
+    // 金額を選んでも閉じない（続けて乗務の長さを選べるように）。長さを押すか「決定」で閉じる
+    [30000,35000,40000,45000,50000,60000].forEach(v=>{ const b=btn(fmtYen(v),"",()=>goalSave(v,null,true)); b.dataset.free="1"; if(G.target===v) b.setAttribute("aria-pressed","true"); c.append(b); });
+    const o=btn("その他","",()=>{ const v=Number(String(prompt("目標営収（円）","")||"").replace(/[^0-9]/g,"")); if(v>0) goalSave(v,null,true); }); o.dataset.free="1"; c.append(o);
     const hl=document.createElement("div"); hl.className="sub"; hl.style.cssText="width:100%;margin-top:6px"; hl.textContent="乗務の長さ（必要な営収/h の計算に使う）"; c.append(hl);
     [8,10,12,14,16].forEach(h=>{ const b=btn(h+"時間","",()=>{ G.hours=h; if(G.target) goalSave(G.target,h); else render(); }); b.dataset.free="1"; b.setAttribute("aria-pressed",String((G.hours||12)===h)); c.append(b); });
-    box.append(c); return; }
+    box.append(c);
+    if(G.target){ const ok=btn("決定（目標 "+fmtYen(G.target)+"円・"+(G.hours||12)+"時間）","",()=>{ G.edit=false; render(); }); ok.dataset.free="1"; ok.style.cssText="width:100%;margin-top:8px"; box.append(ok); }
+    return; }
   const pct=Math.min(100,Math.round(sales/G.target*100)), left=Math.max(0,G.target-sales);
   const r1=document.createElement("div"); r1.className="row";
   const a=document.createElement("span"); a.className="yen"; a.textContent="目標 "+fmtYen(G.target)+"円";
