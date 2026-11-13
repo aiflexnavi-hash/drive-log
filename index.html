@@ -505,6 +505,7 @@ function render(){
       if(curN&&curN>1){ const dn=btn("1台進んだ → "+(curN-1)+"台目","wait wide",()=>record(PT,{n:String(curN-1)})); g.prepend(dn); }
       if(cur){ const now=document.createElement("div"); now.className="amount"; now.style.gridColumn="1/-1"; now.style.textAlign="center"; now.textContent="今 "+cur+" 台目"; g.prepend(now); } }
     if(st==="wait"){ g.append(btn("乗車","hired",()=>record("pickup",{kind:"付け待ち"})), btn("付け待ち離脱","",()=>record("wait_end"))); if(gpsFresh()&&startPlace("wait")) g.lastChild.remove(); }
+    if(st==="stand"||st==="wait"){ const E=st==="stand"?"stand_end":"wait_end"; const db=btn("アプリ受注で離脱（迎車へ）","hired wide",async()=>{ await record(E,{why:"迎車"}); await record("dispatch_accept"); }); db.dataset.free="1"; const pk=[...g.children].find(x=>x.textContent==="乗車"); if(pk&&pk.nextSibling) pk.nextSibling.after(db); else g.append(db); }
     if(st==="dispatch"||st==="arrived"){
       const acc=[...S.events].reverse().find(x=>x.type==="dispatch_accept");
       const setApp=async a=>{ try{ await S.db.collection("events").doc(acc.id).update({app:a}); }catch(x){ showErr("記録できませんでした。"); } };
@@ -665,6 +666,7 @@ function renderLog(){
     const w=document.createElement("div"); w.className="what";
     let t=TYPE[e.type]||e.type; if(e.kind) t+="（"+e.kind+"）"; if(e.app) t+="［"+e.app+"］"; if(e.type==="stand_pos"||e.type==="wait_pos") t+="："+e.n+"台目"; if(e.type==="other_count") t+="（"+e.where+"）："+e.n+"台"; if(e.type==="stand_behind") t+="："+e.n+"台"; if(e.type==="dropoff") t+= e.amount ? "　"+fmtYen(e.amount)+"円"+(e.pay?"・"+e.pay:"") : "　金額なし（日報で入ります）"; if(e.type==="dispatch_cancel"){ if(e.reason) t+="・"+e.reason; if(e.waited!=null) t+="・待ち"+Math.floor(e.waited/60)+"分"+String(e.waited%60).padStart(2,"0")+"秒"; if(e.fee) t+="・キャンセル料"+fmtYen(e.fee)+"円"; } if(e.note) t+="："+e.note; if(e.lat==null) t+="（位置なし）";
     if(e.tip) t+="（チップ "+fmtYen(e.tip)+"円）";
+    if(e.why) t+="（"+e.why+"へ）";
     w.textContent=t; if(e.type==="dropoff"||e.type==="dispatch_cancel") w.classList.add("yen");
     const go=document.createElement("span"); go.className="go"; go.textContent="直す ›";
     li.classList.add("tap"); li.addEventListener("click",()=>openEdit(e.id));
