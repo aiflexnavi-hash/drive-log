@@ -39,6 +39,15 @@ jobs:
           G=android/app/build.gradle
           sed -i "s/versionCode [0-9]*/versionCode $((100 + ${{ github.run_number }}))/; s/versionName \"[^\"]*\"/versionName \"0.1.${{ github.run_number }}\"/" $G
           grep -E "versionCode|versionName|targetSdk|minSdk" $G android/variables.gradle || true
+          # テスト用 APK はいつも app/debug.keystore で署名する（上書き更新できるように）
+          python3 -c "
+          import re,pathlib
+          p=pathlib.Path('$G'); s=p.read_text()
+          sc='''    signingConfigs {\n        debug {\n            storeFile file(\"\${rootDir}/../debug.keystore\")\n            storePassword \"android\"\n            keyAlias \"androiddebugkey\"\n            keyPassword \"android\"\n        }\n    }\n'''
+          s=s.replace('android {\n','android {\n'+sc,1)
+          s=re.sub(r'(buildTypes \{\n)',r'\1        debug {\n            signingConfig signingConfigs.debug\n        }\n',s,1)
+          p.write_text(s)"
+          grep -n -A8 "signingConfigs" $G
           npx cap sync android
       - name: ビルド
         working-directory: app/android
