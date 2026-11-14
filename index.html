@@ -225,7 +225,7 @@ function startGps(){
   try{
     navigator.geolocation.watchPosition(p=>{
       S.pos={lat:+p.coords.latitude.toFixed(6),lng:+p.coords.longitude.toFixed(6),acc:Math.round(p.coords.accuracy),spd:p.coords.speed,at:Date.now()};
-      el.textContent="位置：OK（±"+S.pos.acc+"m）"; el.className="gps ok"; trackAdd(S.pos); autoLeave(S.pos); render();
+      el.textContent="位置：OK（±"+S.pos.acc+"m）"; el.className="gps ok"; trackAdd(S.pos); autoLeave(S.pos); gpsRender();
     },e=>{ el.textContent= e.code===1 ? "位置：許可されていません" : "位置：取れません"; el.className="gps bad"; },
     {enableHighAccuracy:true,maximumAge:5000,timeout:20000});
   }catch(e){ el.textContent="位置：使えません"; el.className="gps bad"; }
@@ -247,6 +247,14 @@ function trackSave(rotate){ const b=trackBuf(); if(!b||!S.db) return; if(b.pts.l
 document.addEventListener("visibilitychange",()=>{ if(document.hidden) trackSave(false); });
 // 付け待ち・乗り場で、乗車を押さずに並んだ所から300m 以上離れたら「離脱」を自動で記録する（列が進むくらいでは反応しない）
 function startPlace(st){ const e=[...S.events].reverse().find(e=>e.type===st+"_start"); return e&&e.lat!=null?e:null; }
+// 位置が更新されるたびに画面を作り直すと、押した瞬間にボタンが入れ替わって反応しなくなる。
+// 画面の見た目が変わるとき（走行中かどうか・位置の新しさ）だけ作り直す。
+let GPSKEY="";
+function gpsRender(){ const k=(moving()?1:0)+"|"+(gpsFresh()?1:0); if(k===GPSKEY) return; GPSKEY=k; render(); }
+// 指が画面に触れている間は作り直さない（離したあとにまとめて作り直す）
+const PTR={down:false,pending:false};
+document.addEventListener("pointerdown",()=>{ PTR.down=true; },true);
+["pointerup","pointercancel"].forEach(ev=>document.addEventListener(ev,()=>{ PTR.down=false; if(PTR.pending){ PTR.pending=false; setTimeout(render,250); } },true));
 function gpsFresh(){ return !!(S.pos&&Date.now()-S.pos.at<120000&&S.pos.acc<=100); }
 function autoLeave(p){ if(!S.shift||!p||p.acc>50||S.leaving) return; const st=currentState(); if(st!=="wait"&&st!=="stand") return;
   const a=startPlace(st); if(!a) return;
@@ -302,9 +310,10 @@ async function record(type, extra={}){
     hideErr();
   }catch(e){ showErr("保存できませんでした（"+(e&&e.code||"不明")+"）。もう一度押してください。"); }
 }
-setInterval(()=>{ const t=document.getElementById("waitTimer"); if(!t) return; const sec=Math.floor((Date.now()-Number(t.dataset.since))/1000); const m=Math.floor(sec/60), ss=String(sec%60).padStart(2,"0");
+function waitTick(){ const t=document.getElementById("waitTimer"); if(!t) return; const sec=Math.floor((Date.now()-Number(t.dataset.since))/1000); const m=Math.floor(sec/60), ss=String(sec%60).padStart(2,"0");
   t.textContent= sec>=300 ? "到着から "+m+"分"+ss+"秒（5分を過ぎました：キャンセル料の対象）" : "到着から "+m+"分"+ss+"秒（5分まであと "+Math.floor((300-sec)/60)+"分"+String((300-sec)%60).padStart(2,"0")+"秒）";
-  t.style.background= sec>=300 ? "var(--vacant)" : "var(--panel)"; t.style.color= sec>=300 ? "#06140d" : "var(--fg)"; },1000);
+  t.style.background= sec>=300 ? "var(--vacant)" : "var(--panel)"; t.style.color= sec>=300 ? "#06140d" : "var(--fg)"; }
+setInterval(waitTick,1000);
 function showErr(t){ const el=$("err"); el.textContent=t; el.hidden=false; }
 function hideErr(){ $("err").hidden=true; }
 
@@ -471,6 +480,7 @@ function setupOpen(only){
 /* ---------- render ---------- */
 function btn(label, cls, fn){ const b=document.createElement("button"); b.type="button"; b.textContent=label; if(cls) b.className=cls; b.addEventListener("click",fn); return b; }
 function render(){
+  if(PTR.down){ PTR.pending=true; return; }
   const st=currentState(), lock=moving();
   const names={off:"未出庫",rest:"休憩中",vacant:"空車",cruise:"流し",dispatch:"迎車",arrived:"迎車先で待ち",wait:"付け待ち",stand:"乗り場",hired:"実車"};
   $("state").className="state s-"+st; $("stateText").textContent=(st==="vacant"&&moving()?"空車（走行中）":names[st])+(st!=="off"&&S.shift&&S.shift.car?"・"+S.shift.car+" ▾":"");
@@ -534,7 +544,7 @@ function render(){
       g.append(ch);
       if(st==="dispatch") g.append(btn("迎車先に到着","wait wide",()=>record("dispatch_arrive",{app:acc&&acc.app||null})));
       g.append(btn("お客さん乗車","hired",()=>record("pickup",{kind:"アプリ・迎車",app:acc&&acc.app||null})), btn("迎車キャンセル","",()=>{ S.sheet="cancel"; S.amount=""; S.reason=null; render(); }));
-      if(st==="arrived"){ const arr=[...S.events].reverse().find(x=>x.type==="dispatch_arrive"); const tm=document.createElement("div"); tm.id="waitTimer"; tm.className="lock"; tm.style.gridColumn="1/-1"; tm.style.background="var(--panel)"; tm.style.color="var(--fg)"; tm.dataset.since=arr?arr.at:Date.now(); g.prepend(tm); }
+      if(st==="arrived"){ const arr=[...S.events].reverse().find(x=>x.type==="dispatch_arrive"); const tm=document.createElement("div"); tm.id="waitTimer"; tm.className="lock"; tm.style.gridColumn="1/-1"; tm.style.background="var(--panel)"; tm.style.color="var(--fg)"; tm.dataset.since=arr?arr.at:Date.now(); g.prepend(tm); setTimeout(waitTick,0); }
     }
     if(st==="hired"){ const d=btn("降車","vacant wide",()=>{ S.sheet="dropoff"; S.editId=null; S.amount=""; S.pay=null; S.tip=0; S.toll=0; S.pax=null; render(); }); d.dataset.free="1"; g.append(d); }
     if(st!=="off"){
