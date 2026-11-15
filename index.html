@@ -369,6 +369,52 @@ function goalRender(sales){
   const miss=S.events.filter(e=>e.type==="dropoff"&&!e.amount).length;
   if(miss){ const n=document.createElement("div"); n.style.cssText="font-size:15px;color:var(--muted)"; n.textContent="金額を入れていない降車 "+miss+"回は、ここに入っていません（日報を読み込むと月の累計に入ります）。"; box.append(n); }
   goalMonthRow(box,sales);
+  paceRow(box,sales); dutyRow(box);
+}
+/* 国の基準（改善基準告示・タクシー、2024年4月〜）。雇われている運転者の目安 */
+const DUTY={day:{name:"日勤・夜勤",base:13,max:15,month:288},alt:{name:"隔日勤務",base:21,max:22,month:262}};
+function dutyRow(box){
+  const set=G.set||{}; if(set.indiv||!set.duty||!DUTY[set.duty]||!S.shift) return;
+  const d=DUTY[set.duty], el=(Date.now()-S.shift.start)/3600000;
+  const r=document.createElement("div"); r.id="dutyRow"; r.style.cssText="font-size:16px;color:var(--muted);margin-top:6px;border-top:1px solid var(--line);padding-top:6px";
+  const a=document.createElement("div");
+  if(el>=d.max){ a.textContent="拘束 "+hm(el*3600000)+"：上限の"+d.max+"時間を過ぎています"; a.style.color="var(--bad,#ff6b6b)"; a.style.fontWeight="700"; }
+  else if(el>=d.base){ a.textContent="拘束 "+hm(el*3600000)+"："+(set.duty==="day"?"原則の13時間を過ぎました":"平均の目安21時間を過ぎました")+"（上限"+d.max+"時間まで あと"+hm((d.max-el)*3600000)+"）"; a.style.color="var(--wait)"; }
+  else a.textContent="拘束 "+hm(el*3600000)+"（"+(set.duty==="day"?"原則13時間":"目安21時間")+"まで あと"+hm((d.base-el)*3600000)+"）";
+  r.append(a);
+  if(G.monthHrs!=null){ const tot=G.monthHrs+el; const b=document.createElement("div"); b.textContent="今月度の拘束 約"+Math.round(tot)+"時間（基準は月"+d.month+"時間まで）"; if(tot>d.month){ b.style.color="var(--wait)"; } r.append(b); }
+  box.append(r);
+}
+/* いつもの自分との比較：過去の乗務の、出庫から同じ時間までの営収の平均（同じ曜日が3回以上あればその曜日だけ） */
+const PACE={at:0,list:null,busy:false};
+async function paceLoad(){
+  if(PACE.busy||!S.db) return; PACE.busy=true;
+  try{ const shifts=(await S.db.collection("shifts").get()).docs.map(d=>({id:d.id,...d.data()})).filter(x=>x.start&&x.end&&x.end-x.start>=3600000);
+    const evs=(await S.db.collection("events").get()).docs.map(d=>d.data()).filter(e=>e.type==="dropoff"&&Number(e.amount)>0);
+    PACE.list=shifts.map(sh=>({id:sh.id,start:sh.start,len:sh.end-sh.start,wd:new Date(sh.start).getDay(),drops:evs.filter(e=>e.shift===sh.id).map(e=>[e.at-sh.start,Number(e.amount)])})).filter(x=>x.drops.length);
+    // 今月度の拘束時間（この乗務より前の分）
+    try{ const p=S.shift?period(ymd(new Date(S.shift.start))):null; G.monthHrs=p?shifts.filter(sh=>{ const k=ymd(new Date(sh.start)); return k>=p.from&&k<=p.to&&(!S.shift||sh.id!==S.shift.id); }).reduce((a,sh)=>a+(sh.end-sh.start)/3600000,0):null; }catch(e){ G.monthHrs=null; }
+    PACE.at=Date.now();
+  }catch(e){} PACE.busy=false; if(S.shift) render(); }
+function paceCalc(sales,now){
+  if(!PACE.list||!S.shift) return null; const el=now-S.shift.start; if(el<1800000) return null;
+  const mine=PACE.list.filter(x=>x.id!==S.shift.id), wd=new Date(S.shift.start).getDay();
+  const pick=min=>{ const ok=mine.filter(x=>x.len>=min); const same=ok.filter(x=>x.wd===wd); return same.length>=3?{l:same,same:true}:(ok.length>=3?{l:ok,same:false}:null); };
+  const sum=(x,a,b)=>x.drops.reduce((t,[at,v])=>t+(at>a&&at<=b?v:0),0);
+  const out={}; const c=pick(el);
+  if(c){ const avg=c.l.reduce((t,x)=>t+sum(x,-1,el),0)/c.l.length; out.diff=Math.round(sales-avg); out.n=c.l.length; out.same=c.same; }
+  const nx=pick(el+3600000);
+  if(nx){ out.next=Math.round(nx.l.reduce((t,x)=>t+sum(x,el,el+3600000),0)/nx.l.length); out.nextN=nx.l.length; }
+  return (out.diff!=null||out.next!=null)?out:null;
+}
+function paceRow(box,sales){
+  if(!S.shift) return; if(!PACE.list||Date.now()-PACE.at>600000){ paceLoad(); if(!PACE.list) return; }
+  const c=paceCalc(sales,Date.now()); if(!c) return;
+  const r=document.createElement("div"); r.id="paceRow"; r.style.cssText="font-size:16px;color:var(--muted);margin-top:6px;border-top:1px solid var(--line);padding-top:6px";
+  if(c.diff!=null){ const a=document.createElement("div"); a.className="yen"; const wdN="日月火水木金土"[new Date(S.shift.start).getDay()];
+    a.textContent="いつもの自分（"+(c.same?wdN+"曜・":"")+"過去"+c.n+"回の同じ時間）より "+(c.diff>=0?"＋":"−")+fmtYen(Math.abs(c.diff))+"円"; if(c.diff>=0) a.style.color="var(--vacant)"; r.append(a); }
+  if(c.next!=null){ const b=document.createElement("div"); b.className="yen"; b.textContent="この先1時間の自分の平均 "+fmtYen(c.next)+"円（過去"+c.nextN+"回）"; r.append(b); }
+  box.append(r);
 }
 function goalMonthRow(box,sales){
   if(G.monthFor!==S.shift.id){ goalMonth(S.shift.id); return; }
@@ -408,7 +454,7 @@ const ymd=x=>x.getFullYear()+"-"+String(x.getMonth()+1).padStart(2,"0")+"-"+Stri
 function workLeft(p){ const days=(G.set&&G.set.workDays)||[]; const today=ymd(new Date()); const inP=days.filter(d=>d>=p.from&&d<=p.to); return {all:inP.length,left:inP.filter(d=>d>=today).length,has:inP.length>0}; }
 function setupOpen(only){
   const old=document.getElementById("setupOv"); if(old) old.remove();
-  const x=G.set||{}; const st={cut:x.cutoff||N.cutoff||null, rate:x.rate?Math.round(x.rate*100):null, ashi:x.ashi||null, days:new Set(x.workDays||[]), mt:x.monthTarget||null, per:0, co:x.company||"", of:x.office||"", indiv:!!x.indiv, area:x.area||""};
+  const x=G.set||{}; const st={cut:x.cutoff||N.cutoff||null, rate:x.rate?Math.round(x.rate*100):null, ashi:x.ashi||null, days:new Set(x.workDays||[]), mt:x.monthTarget||null, per:0, co:x.company||"", of:x.office||"", indiv:!!x.indiv, area:x.area||"", duty:x.duty||null};
   const ov=document.createElement("div"); ov.id="setupOv"; ov.style.cssText="position:fixed;inset:0;z-index:4000;background:var(--bg);overflow:auto;padding:16px;padding-top:calc(16px + var(--sat,0px))";
   const bx=document.createElement("div"); bx.style.cssText="max-width:560px;margin:0 auto;font-size:18px"; ov.append(bx); document.body.append(ov);
   const draw=()=>{
@@ -428,6 +474,9 @@ function setupOpen(only){
         const c=chips(AR,st.area,x=>x,x=>st.area=x);
         const o=btn(st.area&&!AR.includes(st.area)?"その他："+st.area:"その他","",()=>{ const v=String(prompt("営業区域（例：北摂交通圏）",st.area||"")||"").trim().slice(0,40); if(v){ st.area=v; draw(); } }); o.dataset.free="1"; o.setAttribute("aria-pressed",String(!!st.area&&!AR.includes(st.area))); c.append(o);
       }
+      if(!st.indiv){ h("勤務の形","拘束時間の目安（国の基準）を出すために使います");
+        const c=document.createElement("div"); c.className="chips";
+        [["day","日勤・夜勤（1日ごと）"],["alt","隔日勤務（1回で2日分）"]].forEach(([k,l])=>{ const b=btn(l,"",()=>{ st.duty=st.duty===k?null:k; draw(); }); b.dataset.free="1"; b.setAttribute("aria-pressed",String(st.duty===k)); c.append(b); }); bx.append(c); }
       if(!st.indiv) h("所属会社・営業所","営業区域の表示に使います。同じ会社の人の設定も、次からかんたんに出せます（ほかの人に名前は出しません）");
       if(!st.indiv){ const c=document.createElement("div"); c.className="chips";
         const ask=(label,key,ph)=>{ const b=btn(st[key]?label+"："+st[key]:label+"を入れる","",()=>{ const v=String(prompt(label+"（"+ph+"）",st[key]||"")||"").trim().slice(0,40); st[key]=v; draw(); }); b.dataset.free="1"; b.setAttribute("aria-pressed",String(!!st[key])); c.append(b); };
@@ -466,7 +515,7 @@ function setupOpen(only){
     const ok=btn("保存する","vacant",async()=>{
       if(!only&&(!st.cut||(!st.indiv&&!st.rate))){ err.textContent=st.indiv?"締め日を選んでください":"締め日と歩合率を選んでください"; return; }
       const patch={workDays:[...st.days].sort(), setupDone:true};
-      if(!only){ Object.assign(patch,{cutoff:st.cut,rate:st.indiv?null:st.rate/100,ashi:st.indiv?0:(st.ashi||0),monthTarget:st.mt||null,indiv:st.indiv,area:st.indiv?(st.area||null):null,company:st.indiv?null:(st.co||null),office:st.indiv?null:(st.of||null)}); N.rate=st.indiv?null:st.rate/100; N.cutoff=st.cut; N.ashi=st.indiv?0:(st.ashi||0); }
+      if(!only){ Object.assign(patch,{cutoff:st.cut,rate:st.indiv?null:st.rate/100,ashi:st.indiv?0:(st.ashi||0),monthTarget:st.mt||null,indiv:st.indiv,area:st.indiv?(st.area||null):null,company:st.indiv?null:(st.co||null),office:st.indiv?null:(st.of||null),duty:st.indiv?null:(st.duty||null)}); N.rate=st.indiv?null:st.rate/100; N.cutoff=st.cut; N.ashi=st.indiv?0:(st.ashi||0); }
       try{ await settingsPatch(patch); toast("✓ 保存しました"); ov.remove(); G.monthFor=null; render(); viewRefresh(); }catch(e){ err.textContent="保存できませんでした。電波のあるところでもう一度押してください"; } });
     ok.dataset.free="1"; ok.style.cssText="width:100%;margin-top:16px";
     bx.append(err,ok);
@@ -996,6 +1045,7 @@ async function homeRender(){
     c.append(mk("h3",null,p.label));
     kv(c,"営収（税込）・"+m.n+"乗務",fmtYen(m.inc)+"円",true);
     if(m.hrs>0.5) kv(c,"営収/h",fmtYen(Math.round(m.inc/m.hrs))+"円",true);
+    if(!set.indiv&&set.duty&&DUTY[set.duty]&&m.hrs>0.5){ const lim=DUTY[set.duty].month; kv(c,"拘束時間（国の基準は月"+lim+"時間まで）","約"+Math.round(m.hrs)+"時間",false,m.hrs>lim?"var(--wait)":null); }
     if(m.hb>=1) kv(c,"実車率（走った距離のうち、お客さんを乗せていた割合）",Math.round(m.hk/m.hb*100)+"%（空車 約"+fmtYen(Math.round(m.hb-m.hk))+" km）");
     if(set.indiv){ kv(c,"経費",fmtYen(m.exp)+"円",true); kv(c,"手元に残る額（営収＋キャンセル代等−経費）",fmtYen(m.inc+m.fee-m.exp)+"円",true,"var(--vacant)");
       if(m.km>=1){ kv(c,"走行距離（メーター、なければアプリの目安）","約 "+fmtYen(Math.round(m.km))+" km");
@@ -1170,6 +1220,24 @@ async function nipLoad(){
   if(!N.rtHook){ N.rtHook=true; $("myRoute").addEventListener("toggle",()=>{ if($("myRoute").open) routeRender(); }); }
   if($("myRoute").open) routeRender();
 }
+/* 納金チェック：支払い方法ごとの回数と金額（入庫のあとの精算用） */
+const KVS="display:grid;grid-template-columns:1fr auto;gap:8px";
+function nokinBox(evs){
+  const rd=evs.filter(e=>e.type==="dropoff"); const w=document.createElement("div"); w.className="sheet"; w.id="nokin"; w.style.cssText="font-size:19px;line-height:1.7;margin-top:10px";
+  const t=document.createElement("div"); t.className="sub"; t.style.fontSize="16px"; t.textContent="納金チェック（支払い方法ごと）"; w.append(t);
+  if(!rd.length){ w.append(mk("div","font-size:16px;color:var(--muted)","降車の記録がありません。")); return w; }
+  const by={}; let noAmt=0; rd.forEach(e=>{ const k=e.pay||"支払い未入力"; const o=by[k]=by[k]||{n:0,a:0}; o.n++; o.a+=Number(e.amount)||0; if(!e.amount) noAmt++; });
+  const order=[...PAY0.filter(k=>by[k]),...Object.keys(by).filter(k=>!PAY0.includes(k))];
+  order.forEach(k=>{ const r=mk("div",KVS,null,"kv"); r.append(mk("span",null,k+"　"+by[k].n+"回"),mk("b",k==="現金"?"color:var(--vacant)":null,fmtYen(by[k].a)+"円","yv")); w.append(r); });
+  const tot=rd.reduce((a,e)=>a+(Number(e.amount)||0),0), toll=rd.reduce((a,e)=>a+(Number(e.toll)||0),0), tip=rd.reduce((a,e)=>a+(Number(e.tip)||0),0);
+  { const r=mk("div",KVS+";border-top:1px solid var(--line);margin-top:4px;padding-top:4px",null,"kv"); r.append(mk("span",null,"運賃の合計　"+rd.length+"回"),mk("b",null,fmtYen(tot)+"円","yv")); w.append(r); }
+  if(toll){ const r=mk("div",KVS,null,"kv"); r.append(mk("span",null,"高速料金（運賃とは別に受け取った分）"),mk("b",null,fmtYen(toll)+"円","yv")); w.append(r); }
+  if(tip){ const r=mk("div",KVS,null,"kv"); r.append(mk("span",null,"チップ（個人に入る）"),mk("b",null,fmtYen(tip)+"円","yv")); w.append(r); }
+  const notes=[]; if(by["支払い未入力"]) notes.push("支払い方法が入っていない降車が "+by["支払い未入力"].n+"回あります。履歴の「直す」から入れると、ここに分かれて出ます。"); if(noAmt) notes.push("金額が入っていない降車が "+noAmt+"回あります。");
+  notes.push("現金の行が、手元にあるはずの運賃です（釣り銭の元金は別）。");
+  w.append(mk("div","font-size:15px;color:var(--muted);margin-top:6px",notes.join(" ")));
+  return w;
+}
 async function nipShowSaved(id){
   const out=$("nipOut"); out.replaceChildren(); if(!id||N.busy) return;
   try{
@@ -1181,11 +1249,12 @@ async function nipShowSaved(id){
         const box=document.createElement("div"); box.className="sheet"; box.style.fontSize="20px"; box.style.lineHeight="1.7";
         const t=document.createElement("div"); t.className="sub"; t.style.fontSize="16px"; t.textContent="この乗務のまとめ（アプリの記録から）"; box.append(t);
         [["車種",sh&&sh.car],["出庫〜入庫",sh?hhmm(sh.start)+"〜"+(sh.end?hhmm(sh.end):"乗務中"):null],["拘束",hrs?hm(end-sh.start):null],["営収",fmtYen(tot)+"円"],["乗車",rd.length+"回"],["営収/h",hrs>0.2?fmtYen(Math.round(tot/hrs))+"円":null],["客単価",rd.length?fmtYen(Math.round(tot/rd.length))+"円":null],["キャンセル料・チップ（営収とは別・個人に入る）",fee?fmtYen(fee)+"円":null]].forEach(([k,v])=>{ if(v==null) return; const d=document.createElement("div"); d.textContent=k+"："+v; box.append(d); });
-        out.append(box); try{ const mb=document.createElement("div"); out.append(mb); }catch(e){} }
+        out.append(box); out.append(nokinBox(evs)); }
       const p=document.createElement("p"); p.className="note"; p.style.fontSize="17px"; p.textContent="この乗務の日報はまだ取り込んでいません。"; out.append(p); return; }
     const doc=r.data();
     const evs= id.startsWith("past-") ? [] : (await S.db.collection("events").where("shift","==",id).orderBy("at").get()).docs.map(d=>({id:d.id,...d.data()}));
     nipShow(doc,evs);
+    if(evs.some(e=>e.type==="dropoff")) out.append(nokinBox(evs));
     if(doc.comment){ const b=document.createElement("div"); b.className="msg ai"; b.style.marginTop="14px"; b.textContent=doc.comment; addAgain(b,doc.comment); out.append(b); }
   }catch(e){ const p=document.createElement("p"); p.className="err"; p.textContent="読み込めませんでした（"+(e&&e.code||"不明")+"）。"; out.append(p); }
 }
