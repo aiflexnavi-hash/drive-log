@@ -5,6 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       bg: { description: "裏での位置記録を入れる（試し）", type: boolean, default: false }
+      ocr: { description: "写真の文字読み取りを入れる（試し）", type: boolean, default: false }
   push:
     paths: ["app/**", "index.html", "shim.js", ".github/workflows/android.yml"]
 permissions:
@@ -26,6 +27,9 @@ jobs:
           if [ "${{ inputs.bg }}" = "true" ]; then node -e "const f='config.json',c=require('./'+f);c.bg=true;require('fs').writeFileSync(f,JSON.stringify(c,null,2))"; fi
           # 裏での位置記録（config.json の bg が true のときだけ。Play で位置の申告が要る）
           if node -e "process.exit(require('./config.json').bg?0:1)"; then npm install --no-audit --no-fund @capacitor-community/background-geolocation@1.3.1; echo BG=1 >> $GITHUB_ENV; fi
+          # 写真の文字読み取り（config.json の ocr が true のときだけ。読み取りはスマホの中だけで、通信しない）
+          if [ "${{ inputs.ocr }}" = "true" ]; then node -e "const f='config.json',c=require('./'+f);c.ocr=true;require('fs').writeFileSync(f,JSON.stringify(c,null,2))"; fi
+          if node -e "process.exit(require('./config.json').ocr?0:1)"; then npm install --no-audit --no-fund @capacitor-mlkit/text-recognition@8.2.2; node ocr-trim.js; echo OCR=1 >> $GITHUB_ENV; fi
           node build-www.js
       - name: Android プロジェクトを作る
         working-directory: app
@@ -36,6 +40,8 @@ jobs:
           sed -i 's#<uses-permission android:name="android.permission.INTERNET" />#<uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />#' $M
           if [ "$BG" != "1" ]; then sed -i 's#<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />#<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n    <uses-feature android:name="android.hardware.location.gps" android:required="false" />#' $M; fi
           grep -c ACCESS_FINE_LOCATION $M
+          # レシートを写すとき、カメラアプリを呼び出せるようにする（カメラの許可は取らない。写すのはカメラアプリ側）
+          if [ "$OCR" = "1" ]; then sed -i 's#<application#<queries>\n        <intent><action android:name="android.media.action.IMAGE_CAPTURE" /></intent>\n    </queries>\n    <application#' $M; grep -c IMAGE_CAPTURE $M; fi
           G=android/app/build.gradle
           sed -i "s/versionCode [0-9]*/versionCode $((100 + ${{ github.run_number }}))/; s/versionName \"[^\"]*\"/versionName \"0.1.${{ github.run_number }}\"/" $G
           grep -E "versionCode|versionName|targetSdk|minSdk" $G android/variables.gradle || true
@@ -65,7 +71,7 @@ jobs:
       - name: 受け取り用に置く（署名前。署名は鍵を持つ側で行う）
         env: { GH_TOKEN: "${{ github.token }}" }
         run: |
-          V=0.1.${{ github.run_number }}${{ inputs.bg && '-bg' || '' }}
+          V=0.1.${{ github.run_number }}${{ inputs.bg && '-bg' || '' }}${{ inputs.ocr && '-ocr' || '' }}
           cp app/android/app/build/outputs/bundle/release/app-release.aab driver-$V-unsigned.aab
           cp app/android/app/build/outputs/apk/debug/app-debug.apk driver-$V-debug.apk
           gh release create "build-$V" driver-$V-unsigned.aab driver-$V-debug.apk --prerelease --target "${{ github.sha }}" --title "テスト版ビルド $V（署名前）" --notes "自動ビルド。ストアに出すものは別に署名する。"

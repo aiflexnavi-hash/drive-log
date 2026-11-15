@@ -1063,6 +1063,36 @@ async function trackKm(id){ const pts=[]; (await S.db.collection("tracks").where
   let km=0, hk=0; const R=6371, rad=x=>x*Math.PI/180;
   for(let i=1;i<pts.length;i++){ const a=pts[i-1], b=pts[i]; if(b[0]-a[0]>600000) continue; const dl=rad(b[1]-a[1]), dg=rad(b[2]-a[2]); const h=Math.sin(dl/2)**2+Math.cos(rad(a[1]))*Math.cos(rad(b[1]))*Math.sin(dg/2)**2; const d=2*R*Math.asin(Math.sqrt(h)); if(d<=5){ km+=d; if(hired.some(([s0,e0])=>a[0]>=s0&&b[0]<=e0)) hk+=d; } }
   return {km,hk}; }
+/* ===== レシートの読み取り（アプリ版だけ。写真はスマホの中で文字にする。外には送らない） ===== */
+function rcNorm(t){ return String(t||"").replace(/[０-９Ａ-Ｚａ-ｚ．，￥]/g,c=>c==="￥"?"¥":String.fromCharCode(c.charCodeAt(0)-0xFEE0)).replace(/[\\＼]/g,"¥").replace(/(^|\s)[YＹ](?=\s?\d)/g,"$1¥").replace(/[ \t　]+/g," "); }
+const p2=n=>String(Number(n)).padStart(2,"0");
+function rcNums(t){ const out=[]; const re=/(¥\s*)?(\d{1,3}(?:[,.]\d{3})+|\d+)(\s*円)?/g; let m; const s=t.replace(/(\d)\s+(?=[,.]\d{3})/g,"$1").replace(/([,.])\s+(?=\d{3})/g,"$1");
+  while((m=re.exec(s))){ const after=s.slice(m.index+m[0].length,m.index+m[0].length+3); if(/^\s*(%|％|L|ℓ|l\b|点|個|枚|km)/.test(after)) continue; if(/^[.]\d/.test(after)) continue;
+    const v=Number(m[2].replace(/[,.]/g,"")); if(v>0&&v<10000000) out.push({v,yen:!!(m[1]||m[3])}); } return out; }
+function receiptParse(r){ const lines=(r&&r.lines&&r.lines.length?r.lines:String((r&&r.text)||"").split("\n").map(t=>({text:t}))).map(l=>({...l,t:rcNorm(l.text)})).filter(l=>l.t.trim());
+  const all=lines.map(l=>l.t).join("\n"), out={amount:null,liters:null,date:null,cat:null,how:null};
+  const BAD=/お?預|釣|内税|消費税|税額|対象|小計|点数|数量|ポイント|残高|単価|No\.?|番号|TEL|電話|登録/i;
+  const pick=(l)=>{ const ns=rcNums(l.t.replace(/20\d\d\s*[年\/.-]\s*\d{1,2}\s*[月\/.-]\s*\d{1,2}日?/g,"").replace(/\d{1,2}:\d{2}(:\d{2})?/g,"")); if(!ns.length) return null; const y=ns.filter(n=>n.yen); return (y.length?y[y.length-1]:ns[ns.length-1]).v; };
+  const hasBox=lines.every(l=>l.h>0);
+  const right=(l)=>{ if(!hasBox) return null; const cy=l.y+l.h/2; let best=null,bd=1e9; lines.forEach(o=>{ if(o===l||BAD.test(o.t)&&!/合計|請求|領収/.test(o.t)) return; if(o.x<l.x+l.w*0.5) return; const d=Math.abs(o.y+o.h/2-cy); if(d<Math.max(l.h,o.h)*0.7&&d<bd){ const v=pick(o); if(v){ best=v; bd=d; } } }); return best; };
+  const KEYS=[/(ご?請求|領収)\s*(金?額)/,/(税込)?\s*合\s*計(?!\s*(点|数|個))/,/お買上げ?計|お会計|現計|総額|利用金?額/];
+  for(const re of KEYS){ if(out.amount) break;
+    for(let i=0;i<lines.length;i++){ const l=lines[i]; if(!re.test(l.t)||/小\s*計/.test(l.t)||/点数|数量/.test(l.t)) continue;
+      const tail=l.t.slice(l.t.search(re)); let v=pick({t:tail.replace(re,"")}); if(v) out.how="同じ行";
+      if(!v){ v=right(l); if(v) out.how="右の数字"; }
+      if(!v&&!hasBox){ for(let j=i+1;j<Math.min(i+3,lines.length);j++){ if(BAD.test(lines[j].t)) continue; const n=pick(lines[j]); if(n&&/^[\s¥]*[\d,.]+\s*円?\s*$/.test(lines[j].t)){ v=n; out.how="次の行"; break; } } }
+      if(v){ out.amount=v; break; } } }
+  if(!out.amount){ let mx=0; lines.forEach(l=>{ if(BAD.test(l.t)) return; rcNums(l.t).forEach(n=>{ if(n.yen&&n.v>mx) mx=n.v; }); }); if(mx){ out.amount=mx; out.how="いちばん大きい金額"; } }
+  const lm=all.match(/(\d{1,3}[.,]\d{1,2})\s*(L\b|ℓ|l\b|リットル|ﾘｯﾄﾙ)/); if(lm){ const L=Number(lm[1].replace(",",".")); if(L>0&&L<200) out.liters=L; }
+  if(out.liters||/レギュラー|ﾚｷﾞｭﾗｰ|ハイオク|ﾊｲｵｸ|軽油|LPG|LPガス|オートガス|ｵｰﾄｶﾞｽ|給油|ENEOS|エネオス|出光|apollostation|コスモ石油|キグナス/i.test(all)) out.cat="燃料"; else if(/洗車/.test(all)) out.cat="洗車";
+  let dm=all.match(/(20\d\d)\s*[年\/.-]\s*(\d{1,2})\s*[月\/.-]\s*(\d{1,2})/); if(dm) out.date=dm[1]+"-"+p2(dm[2])+"-"+p2(dm[3]);
+  else if((dm=all.match(/(?:令和|R)\s*(\d{1,2})\s*[年\/.-]\s*(\d{1,2})\s*[月\/.-]\s*(\d{1,2})/))) out.date=(2018+Number(dm[1]))+"-"+p2(dm[2])+"-"+p2(dm[3]);
+  return out; }
+async function receiptRead(file,k){ if(!file||!window.OCR) return; toast("読み取っています…");
+  try{ const r=await window.OCR.read(file), p=receiptParse(r); V.expDraft={amount:p.amount||"",liters:p.liters||"",rc:p,day:k}; if(p.cat) V.expCat=p.cat;
+    toast(p.amount?"読み取りました。金額を確かめてから保存してください":"金額を読み取れませんでした。手で入れてください",!!p.amount); }
+  catch(e){ toast("読み取れませんでした。手で入れてください",false); }
+  calRender(); }
 function monthSum(p,days){ let inc=0,ex=0,n=0,hrs=0,fee=0,exp=0,km=0,hk=0,hb=0,lit=0,fuelYen=0; Object.keys(V.extras||{}).forEach(k=>{ if(k>=p.from&&k<=p.to) V.extras[k].forEach(x=>{ if(x.kind==="expense"){ exp+=Number(x.amount)||0; if(x.liters){ lit+=Number(x.liters)||0; fuelYen+=Number(x.amount)||0; } } else fee+=Number(x.amount)||0; }); }); Object.keys(days).forEach(k=>{ if(k<p.from||k>p.to) return; days[k].forEach(x=>{ inc+=x.inc; fee+=x.fee||0; ex+=x.ex; if(x.inc>0||x.rep) n++; if(x.hours) hrs+=x.hours; km+=x.km||0; hk+=x.hk||0; hb+=x.hkBase||0; }); }); return {inc,ex,n,hrs,fee,exp,km,hk,hb,lit,fuelYen}; }
 function kv(box,k,v,yen,color){ const r=mk("div",null,null,"kv"); const a=mk("span",null,k), b=mk("b",color?"color:"+color:null,v); if(yen) b.className="yv"; r.append(a,b); box.append(r); return r; }
 function goShift(id){ N.pick=id; setView("after"); setTimeout(()=>{ try{ nipRender(); nipShowSaved(id); }catch(e){} },300); }
@@ -1229,11 +1259,19 @@ async function calRender(){
           const ch=mk("div",null,null,"chips"); ["燃料","配車アプリ手数料","無線・組合費","保険","車両・整備","洗車","その他"].forEach(a=>{ const b=btn(a,"",()=>{ V.expCat=a; calRender(); }); b.dataset.free="1"; b.setAttribute("aria-pressed",String(cat===a)); ch.append(b); });
           const i=document.createElement("input"); i.type="number"; i.inputMode="numeric"; i.placeholder="金額（円）"; i.style.cssText="font-size:22px;padding:8px;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:10px";
           const li=document.createElement("input"); li.type="number"; li.inputMode="decimal"; li.step="0.01"; li.placeholder="給油量（リットル）"; li.style.cssText=i.style.cssText; li.hidden=cat!=="燃料";
+          const dr=(V.expDraft&&V.expDraft.day===k)?V.expDraft:(V.expDraft={day:k,amount:"",liters:""}); if(dr.amount) i.value=dr.amount; if(dr.liters) li.value=dr.liters;
+          i.addEventListener("input",()=>{ dr.amount=i.value; }); li.addEventListener("input",()=>{ dr.liters=li.value; });
+          let rcB=null, rcN=null;
+          if(window.OCR){ const fi=document.createElement("input"); fi.type="file"; fi.accept="image/*"; fi.setAttribute("capture","environment"); fi.hidden=true; fi.id="rcFile";
+            fi.addEventListener("change",()=>{ const f=fi.files&&fi.files[0]; fi.value=""; receiptRead(f,k); });
+            rcB=btn("レシートを写す（金額を読み取る）","ghost",()=>fi.click()); rcB.dataset.free="1"; rcB.style.cssText="min-height:52px;font-size:17px"; rcB.append(fi);
+            if(dr.rc){ const p=dr.rc, bits=[]; if(p.amount) bits.push("金額 "+fmtYen(p.amount)+"円"); if(p.liters) bits.push("給油量 "+p.liters+"L"); if(p.date) bits.push("レシートの日付 "+p.date.slice(5).replace("-","/"));
+              rcN=mk("div","font-size:14px;color:"+(p.date&&p.date!==k?"var(--warn,#ffb74d)":"var(--muted)"),bits.length?("読み取った内容："+bits.join("、")+(p.date&&p.date!==k?"（選んだ日と違います）":"")+"。違っていたら直してください。"):"文字を読み取れませんでした。明るい所で、レシート全体が入るように写してください。"); rcN.id="rcNote"; } }
           const ok=btn("経費を保存","vacant",async()=>{ const v=Number(String(i.value).replace(/[^0-9]/g,"")); if(!(v>0)){ toast("金額を入れてください",false); return; }
             const L=cat==="燃料"?Number(String(li.value).replace(/[^0-9.]/g,""))||null:null;
-            try{ await S.db.collection("extras").add({date:k,kind:"expense",cat,amount:v,...(L?{liters:L}:{}),at:Date.now()}); toast("✓ 経費を保存しました"); V.expDay=null; V.expCat=null; V.dataAt=0; G.monthFor=null; calRender(); }catch(e){ toast("保存できませんでした",false); } });
-          const cc=btn("やめる","ghost",()=>{ V.expDay=null; V.expCat=null; calRender(); }); ok.dataset.free="1"; cc.dataset.free="1";
-          w.append(mk("div","font-weight:700","経費（個人タクシー）"),ch,i,li,ok,cc); xb.append(w); }
+            try{ await S.db.collection("extras").add({date:k,kind:"expense",cat,amount:v,...(L?{liters:L}:{}),at:Date.now()}); toast("✓ 経費を保存しました"); V.expDay=null; V.expCat=null; V.expDraft=null; V.dataAt=0; G.monthFor=null; calRender(); }catch(e){ toast("保存できませんでした",false); } });
+          const cc=btn("やめる","ghost",()=>{ V.expDay=null; V.expCat=null; V.expDraft=null; calRender(); }); ok.dataset.free="1"; cc.dataset.free="1";
+          w.append(mk("div","font-weight:700","経費（個人タクシー）")); if(rcB) w.append(rcB); if(rcN) w.append(rcN); w.append(ch,i,li,ok,cc); xb.append(w); }
         else { const b=btn("経費を入れる（燃料など）","ghost",()=>{ V.expDay=k; V.expCat=null; calRender(); }); b.dataset.free="1"; b.style.cssText="width:100%;margin-top:8px;min-height:52px;font-size:17px"; xb.append(b); } }
       c.append(xb); }
     if(k>=today||!ds.length){ const on=wd.has(k); const u=btn(on?"出番から外す":"この日を出番にする","ghost",async()=>{ const s2=new Set((G.set&&G.set.workDays)||[]); if(on) s2.delete(k); else s2.add(k);
