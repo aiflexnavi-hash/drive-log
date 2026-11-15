@@ -195,6 +195,19 @@ window.NO_CHAT=true;   // 雑談の相談はアプリに入れない
       const f=document.createElement("input"); f.type="file"; f.accept=".json,application/json"; f.style.fontSize="17px";
       f.addEventListener("change",()=>{ if(f.files[0]) importFile(f.files[0]); f.value=""; });
       if(!TESTER){ box.append(sm,p,f); wrap.append(box); }
+      // バックアップ：スマホの中の記録を1つのファイルに保存／そのファイルから戻す（機種変更・アンインストール前の備え）
+      { const bk=document.createElement("details"); bk.style.cssText="margin-top:8px;font-size:17px";
+        const bs=document.createElement("summary"); bs.textContent="記録のバックアップ（保存・戻す）"; bs.style.cssText="min-height:44px;display:flex;align-items:center;cursor:pointer;color:var(--muted)";
+        const bp=document.createElement("p"); bp.className="note"; bp.style.fontSize="17px"; bp.textContent="記録はこのスマホの中にあります。アプリを消す（アンインストール）と記録も消えます。アプリの更新では消えません。念のため、ときどき「バックアップを保存」で Google ドライブなどに保存しておくと安心です。戻すときは、そのファイルを選びます（同じ記録は二重に入りません）。";
+        const sv=document.createElement("button"); sv.type="button"; sv.textContent="バックアップを保存"; sv.style.cssText="width:100%;min-height:56px;font-size:18px;margin:6px 0";
+        sv.addEventListener("click",async()=>{ const docs=Object.values(store).filter(x=>x&&x.d).map(x=>({c:x.c,i:x.i,d:x.d}));
+          const d=new Date(), ymd=d.getFullYear()+String(d.getMonth()+1).padStart(2,"0")+String(d.getDate()).padStart(2,"0")+"-"+String(d.getHours()).padStart(2,"0")+String(d.getMinutes()).padStart(2,"0");
+          const blob=new Blob([JSON.stringify({kind:"drive-log-backup",v:1,at:Date.now(),docs})],{type:"application/json"});
+          await downloads.save({filename:"乗務記録バックアップ-"+ymd+".json",data:blob}); });
+        const bl=document.createElement("div"); bl.className="note"; bl.style.cssText="font-size:16px;margin-top:8px"; bl.textContent="バックアップから戻す：";
+        const bf=document.createElement("input"); bf.type="file"; bf.accept=".json,application/json"; bf.style.fontSize="17px";
+        bf.addEventListener("change",()=>{ if(bf.files[0]) importFile(bf.files[0]); bf.value=""; });
+        bk.append(bs,bp,sv,bl,bf); wrap.append(bk); }
       if(TESTER&&window.TesterUI) window.TesterUI.mount(wrap,{write,store,DEV});
       if(!API&&!TESTER){ const w=document.createElement("p"); w.className="err"; w.style.fontSize="18px"; w.textContent="送られてきたリンクから開き直してください（保存先の情報がリンクに入っています）。"; wrap.prepend(w); }
     }
