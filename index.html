@@ -567,7 +567,7 @@ function render(){
       g.append(btn("付け待ち開始","wait",()=>record("wait_start")), btn("乗り場に並ぶ","wait",()=>record("stand_start")));
       const rb=btn("休憩開始","ghost wide",()=>record("rest_start")); g.append(rb); }
     if(st==="rest"){ const re=btn("休憩終了","vacant wide",()=>record("rest_end")); re.dataset.free="1"; re.style.cssText="min-height:84px;font-size:26px"; g.append(re); }
-    if(st==="stand"){ g.append(btn("乗車","hired",()=>record("pickup",{kind:"乗り場"})), btn("列を離れる","",()=>record("stand_end"))); if(gpsFresh()&&startPlace("stand")) g.lastChild.remove(); }
+    if(st==="stand"){ g.append(btn("乗車","hired",()=>record("pickup",{kind:"乗り場"})), btn("列を離れる（乗せずに）","",()=>record("stand_end",{why:"乗せずに"}))); }
     if(st==="stand"||st==="wait"){ const PT=st==="stand"?"stand_pos":"wait_pos", ST=st==="stand"?"stand_start":"wait_start";
       const sp=[...S.events].reverse().find(x=>x.type===PT||x.type===ST); const cur=sp&&sp.type===PT?sp.n:null;
       const ch=document.createElement("div"); ch.className="chips"; ch.style.gridColumn="1/-1";
@@ -583,7 +583,7 @@ function render(){
       const curN=cur&&cur!=="11+"?Number(cur):null;
       if(curN&&curN>1){ const dn=btn("1台進んだ → "+(curN-1)+"台目","wait wide",()=>record(PT,{n:String(curN-1)})); g.prepend(dn); }
       if(cur){ const now=document.createElement("div"); now.className="amount"; now.style.gridColumn="1/-1"; now.style.textAlign="center"; now.textContent="今 "+cur+" 台目"; g.prepend(now); } }
-    if(st==="wait"){ g.append(btn("乗車","hired",()=>record("pickup",{kind:"付け待ち"})), btn("付け待ち離脱","",()=>record("wait_end"))); if(gpsFresh()&&startPlace("wait")) g.lastChild.remove(); }
+    if(st==="wait"){ g.append(btn("乗車","hired",()=>record("pickup",{kind:"付け待ち"})), btn("付け待ち離脱（乗せずに）","",()=>record("wait_end",{why:"乗せずに"}))); }
     if(st==="stand"||st==="wait"){ const E=st==="stand"?"stand_end":"wait_end"; const db=btn("アプリ受注で離脱（迎車へ）","hired wide",async()=>{ await record(E,{why:"迎車"}); await record("dispatch_accept"); }); db.dataset.free="1"; const pk=[...g.children].find(x=>x.textContent==="乗車"); if(pk&&pk.nextSibling) pk.nextSibling.after(db); else g.append(db); }
     if(st==="dispatch"||st==="arrived"){
       const acc=[...S.events].reverse().find(x=>x.type==="dispatch_accept");
