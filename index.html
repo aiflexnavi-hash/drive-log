@@ -1369,8 +1369,60 @@ function shrink(file){
   });
 }
 function toMin(t){ const m=/^(\d{1,2}):(\d{2})/.exec(String(t||"")); return m? Number(m[1])*60+Number(m[2]) : null; }
+/* ===== 日報の写真をスマホの中で読む（アプリ版。写真も文字も外に送らない） =====
+   読んだ数字は確かめてから保存する。拾えなかった所は手で入れる。 */
+function nipLines(rs){ const L=[]; rs.forEach((r,pg)=>{ const ls=r&&r.lines&&r.lines.length?r.lines:String((r&&r.text)||"").split("\n").map(t=>({text:t})); ls.forEach(l=>{ const t=rcNorm(l.text); if(t.trim()) L.push({...l,t,pg}); }); }); return L; }
+function nipNum(t){ const m=String(t).replace(/(\d)\s*[,，]\s*(?=\d{3})/g,"$1").match(/-?\d+(?:\.\d+)?/); return m?Number(m[0]):null; }
+function nipTime(t){ const m=String(t).match(/(\d{1,2})\s*[:：時]\s*(\d{2})/); if(!m) return null; const h=Number(m[1]),mi=Number(m[2]); return h<48&&mi<60?String(h%24).padStart(2,"0")+":"+String(mi).padStart(2,"0"):null; }
+// ラベルの行から値をさがす：同じ行の後ろ → 同じ高さで右にある行 → 次の行
+function nipFind(L,re,get,bad){ const hasBox=L.length&&L.every(l=>l.h>0);
+  for(let i=0;i<L.length;i++){ const l=L[i]; const m=l.t.match(re); if(!m||(bad&&bad.test(l.t))) continue;
+    let v=get(l.t.slice(m.index+m[0].length)); if(v!=null) return v;
+    if(hasBox){ const cy=l.y+l.h/2; let best=null,bd=1e9; L.forEach(o=>{ if(o===l||o.pg!==l.pg||o.x<l.x+l.w*0.6) return; const d=Math.abs(o.y+o.h/2-cy); if(d<Math.max(l.h,o.h)*0.7){ const dx=o.x-l.x; if(dx<bd){ const w=get(o.t); if(w!=null){ best=w; bd=dx; } } } }); if(best!=null) return best; }
+    else { const n=L[i+1]; if(n&&!/[ぁ-んァ-ヶ一-龠]{2}/.test(n.t)){ v=get(n.t); if(v!=null) return v; } } }
+  return null; }
+function nippoParse(rs){ const L=nipLines(rs), all=L.map(l=>l.t).join("\n"), o={};
+  const yen=t=>{ const v=nipNum(t); return v!=null&&v>=500&&v<1000000?Math.round(v):null; };
+  o.total=nipFind(L,/(総?営業?収入?|営\s*収|運\s*収|運賃\s*(合計|収入)?|売上\s*(合計)?|税込\s*合計|水揚げ?)(?!\s*(回|率|km))(\s*合\s*計)?/,yen,/(税抜|回数|1回|平均|単価|km|率)/);
+  if(o.total==null) o.total=nipFind(L,/^\s*(総\s*)?合\s*計(?!\s*(回|点|km))/,yen,/回数/);
+  o.count=nipFind(L,/(乗車|営業|実車|輸送)?\s*回\s*数|乗車人?数|営業回/,t=>{ const v=nipNum(t); return v!=null&&v>=1&&v<=99&&Number.isInteger(v)?v:null; },/(迎車|配車|メーター)/);
+  o.start=nipFind(L,/出\s*庫(時刻|時間)?/,nipTime); o.end=nipFind(L,/(入|帰)\s*庫(時刻|時間)?/,nipTime);
+  o.km=nipFind(L,/(総\s*)?走\s*行(距離|キロ|km)?(?!\s*(実|空))/,t=>{ const v=nipNum(t); return v!=null&&v>=1&&v<1500?v:null; },/(実車|空車)/);
+  o.hired_rate=nipFind(L,/実\s*車\s*率/,t=>{ const v=nipNum(t); return v!=null&&v>0&&v<=100?v:null; });
+  let dm=all.match(/(20\d\d)\s*[年\/.-]\s*(\d{1,2})\s*[月\/.-]\s*(\d{1,2})/); if(dm) o.date=dm[1]+"-"+p2(dm[2])+"-"+p2(dm[3]);
+  else if((dm=all.match(/(?:令和|R)\s*(\d{1,2})\s*[年\/.-]\s*(\d{1,2})\s*[月\/.-]\s*(\d{1,2})/))) o.date=(2018+Number(dm[1]))+"-"+p2(dm[2])+"-"+p2(dm[3]);
+  return o; }
+async function nipOcr(files){
+  if(N.busy||!files||!files.length) return;
+  const out=$("nipOut"); N.busy=true; $("nipBtn").disabled=true; out.replaceChildren(mk("p","font-size:20px","読み取り中…","note"));
+  let o={}; try{ const rs=[]; for(const f of Array.from(files).slice(0,4)) rs.push(await window.OCR.read(f)); o=nippoParse(rs); }catch(e){ o={}; }
+  N.busy=false; $("nipBtn").disabled=false; $("nipFile").value="";
+  nipConfirm(o); }
+function nipConfirm(o){ const out=$("nipOut"); out.replaceChildren();
+  const sh=N.shifts.find(x=>x.id===N.pick); const sd=sh?ymd(new Date(sh.start)):null;
+  const got=["total","count","start","end","km","hired_rate"].filter(k=>o[k]!=null).length;
+  const w=mk("div","display:flex;flex-direction:column;gap:8px"); w.className="sheet";
+  w.append(mk("div","font-size:19px;font-weight:700",got?"読み取った数字（違っていたら直してから保存）":"数字を読み取れませんでした。手で入れるか、明るい所で撮り直してください。"));
+  const row=(lab,type,val,ph)=>{ const l=mk("label","display:grid;grid-template-columns:7em 1fr;gap:8px;align-items:center;font-size:19px"); const i=document.createElement("input"); i.type=type; if(type==="number") i.inputMode="decimal"; i.value=val==null?"":val; if(ph) i.placeholder=ph; i.style.cssText="font-size:22px;padding:8px;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:10px;min-width:0"+(val==null?";border-color:var(--warn,#ffb74d)":""); l.append(mk("span",null,lab),i); w.append(l); return i; };
+  const dt=row("日付","date",o.date||sd||ymd(new Date()));
+  const tot=row("営収（税込）","number",o.total,"例 52000"), cnt=row("乗車回数","number",o.count,"例 25");
+  const st=row("出庫","time",o.start), en=row("入庫","time",o.end), km=row("走行km","number",o.km), hr=row("実車率（%）","number",o.hired_rate);
+  const err=mk("div","font-size:16px",null,"err");
+  const ok=btn("この内容で保存する","vacant",async()=>{
+    const num=x=>{ const v=Number(String(x.value).replace(/[^0-9.]/g,"")); return v>0?v:null; };
+    const t=num(tot); if(!t){ err.textContent="営収を入れてください"; return; } const d=dt.value; if(!/^\d{4}-\d{2}-\d{2}$/.test(d)){ err.textContent="日付を入れてください"; return; }
+    let hours=null; const a=toMin(st.value), b=toMin(en.value); if(a!=null&&b!=null){ let x=b-a; if(x<=0) x+=1440; hours=Math.round(x/6)/10; }
+    const mine=sh&&d===sd; const id=mine?N.pick:"past-"+d.replace(/-/g,"");
+    const doc={ shift:mine?N.pick:null, at:Date.now(), date:d, total:Math.round(t), total_ex:Math.round(t/1.1), count:num(cnt), rides:[], rests:[], start:st.value||"", end:en.value||"", hours, km:num(km), hired_rate:num(hr), src:mine?"ocr":"past", verified:"photo-device" };
+    try{ const ref=S.db.collection("reports").doc(id); const old=await ref.get(); const x=old.exists?old.data():{}; await ref.set({...x,...doc,rides:x.rides&&x.rides.length?x.rides:[],rests:x.rests||[]});
+      N.pick=id; if(N.have) N.have.add(id); try{ const rs=await S.db.collection("reports").get(); N.past=rs.docs.filter(q=>q.id.startsWith("past-")).map(q=>({id:q.id,...q.data()})).sort((p,q)=>p.date<q.date?1:-1); }catch(e){}
+      toast("✓ 日報を保存しました"); V.dataAt=0; G.monthFor=null; nipRender(); nipShowSaved(id); }
+    catch(e){ err.textContent="保存できませんでした。もう一度押してください"; } });
+  ok.dataset.free="1"; const cc=btn("やめる","ghost",()=>{ out.replaceChildren(); }); cc.dataset.free="1";
+  w.append(err,ok,cc,mk("div","font-size:15px","写真は保存しません。保存すると、今月度の累計・足切りまでの残り・歩合の見込みに入ります。","note")); out.append(w); }
 async function nipRead(files){
   if(N.busy||!files||!files.length) return;
+  if(!N.limits&&window.OCR) return nipOcr(files);
   if(!N.pick){ showErr("先に出庫して記録してください。"); return; }
   const out=$("nipOut"); N.busy=true; $("nipBtn").disabled=true;
   out.replaceChildren(); const p=document.createElement("p"); p.className="note"; p.style.fontSize="20px"; p.textContent="読み取り中…（1分ほどかかります）"; out.append(p);
@@ -1422,7 +1474,7 @@ function nipShow(doc,evs){
     kv("税抜営収",fmtYen(ex)+"円");
     if(!(G.set||{}).indiv) kv("歩合（税抜×"+Math.round(rate*100)+"%）",fmtYen(Math.round(ex*rate))+"円");
     kv("営収/h（拘束・税込）",hrs?fmtYen(Math.round(tot/hrs))+"円":null);
-    kv("乗車回数・客単価",doc.rides.length+"回・"+(doc.rides.length?fmtYen(Math.round(tot/doc.rides.length))+"円":"–"));
+    { const nR=doc.rides.length||doc.count||0; kv("乗車回数・客単価",nR+"回・"+(nR?fmtYen(Math.round(tot/nR))+"円":"–")); }
     kv("実車率",doc.hired_rate!=null?doc.hired_rate+"%":null);
     kv("「休」の合計",doc.restTotal||null);
     kv("走行・km単価",doc.km?doc.km+"km・"+fmtYen(Math.round(tot/doc.km))+"円/km":null);
@@ -1781,7 +1833,7 @@ function watchShift(){
     if(tt||HAS_SS){ const sb=$("speakBtn"); sb.hidden=false; sb.addEventListener("click",()=>{ C.speak=!C.speak; sb.textContent="答えを読み上げる："+(C.speak?"オン":"オフ"); if(!C.speak){ try{C.tts&&C.tts.stop();}catch(e){} try{HAS_SS&&speechSynthesis.cancel();}catch(e){} } }); }
     if(db){ S.db=db; clearTimeout(timer); watchShift(); goalLoad(); }
     if(db){ const lim= sm ? await sm.limits().catch(()=>null) : null; N.limits=lim&&lim.images; $("nippo").hidden=false; $("afterEmpty").remove();
-      if(N.limits){ $("nipFile").accept=(N.limits.mediaTypes||["image/*"]).join(","); $("nipBtn").dataset.free="1"; $("nipBtn").addEventListener("click",()=>$("nipFile").click()); $("nipFile").addEventListener("change",e=>nipRead(e.target.files)); $("camBtn").dataset.free="1"; $("camBtn").addEventListener("click",()=>$("nipCam").click()); $("nipCam").addEventListener("change",e=>{ const f=e.target.files&&e.target.files[0]; if(f){ N.cam.push(f); } e.target.value=""; camRender(); }); }
+      if(N.limits||window.OCR){ $("nipFile").accept=N.limits?(N.limits.mediaTypes||["image/*"]).join(","):"image/*"; if(!N.limits) $("nipNote").textContent="入庫後に、乗務員日報を撮ってください（2枚なら1枚ずつ続けて）。読み取りはスマホの中だけで行い、写真は保存しません。読んだ数字を確かめてから保存します。"; $("nipBtn").dataset.free="1"; $("nipBtn").addEventListener("click",()=>$("nipFile").click()); $("nipFile").addEventListener("change",e=>nipRead(e.target.files)); $("camBtn").dataset.free="1"; $("camBtn").addEventListener("click",()=>$("nipCam").click()); $("nipCam").addEventListener("change",e=>{ const f=e.target.files&&e.target.files[0]; if(f){ N.cam.push(f); } e.target.value=""; camRender(); }); }
       else { $("camBtn").hidden=true; $("nipBtn").hidden=true; $("nipNote").textContent="日報の写真読み取りは、スマホの中だけで動く方式に作り替え中です（通信料・利用料がかからない方式）。今は記録からのまとめと、過去の日報が見られます。過去の日の日報（営収・回数・時間）は「カレンダー」で日を押すと手で入れられます。"; }
       nipLoad(); }
   }catch(e){}
