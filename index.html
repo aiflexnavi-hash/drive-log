@@ -560,7 +560,7 @@ function render(){
     const g=document.createElement("div"); g.className="grid";
     // 金額を飛ばした降車：停車中なら入れるよう促す（古い順に1件ずつ）
     { const miss=S.events.filter(e=>e.type==="dropoff"&&!e.amount);
-      if(miss.length&&!moving()&&st!=="hired"){ const e0=miss[0]; const r=btn("金額が入っていない降車 "+miss.length+"件（"+hhmm(e0.at)+"〜）→ 入れる","wait wide",()=>{ S.editId=e0.id; S.amount=""; S.pay=e0.pay||null; S.tip=e0.tip||0; S.toll=e0.toll||0; S.pax=e0.pax||null; S.sheet="dropoff"; render(); window.scrollTo({top:0,behavior:"smooth"}); });
+      if(miss.length&&!moving()&&st!=="hired"){ const e0=miss[0]; const r=btn("金額が入っていない降車 "+miss.length+"件（"+hhmm(e0.at)+"〜）→ 入れる","wait wide",()=>{ S.editId=e0.id; S.amount=""; S.pay=e0.pay||null; S.tkt=e0.tkt||null; S.tip=e0.tip||0; S.toll=e0.toll||0; S.pax=e0.pax||null; S.sheet="dropoff"; render(); window.scrollTo({top:0,behavior:"smooth"}); });
         r.dataset.free="1"; r.style.cssText="min-height:64px;font-size:20px"; g.append(r); } }
     if(st==="off") g.append(btn("出庫","vacant wide",()=>record("shift_start")));
     if(st!=="off" && S.shift && (!S.shift.car||S.carEdit)){ const ch=document.createElement("div"); ch.className="chips"; ch.style.gridColumn="1/-1";
@@ -602,7 +602,7 @@ function render(){
       g.append(btn("お客さん乗車","hired",()=>record("pickup",{kind:"アプリ・迎車",app:acc&&acc.app||null})), btn("迎車キャンセル","",()=>{ S.sheet="cancel"; S.amount=""; S.reason=null; render(); }));
       if(st==="arrived"){ const arr=[...S.events].reverse().find(x=>x.type==="dispatch_arrive"); const tm=document.createElement("div"); tm.id="waitTimer"; tm.className="lock"; tm.style.gridColumn="1/-1"; tm.style.background="var(--panel)"; tm.style.color="var(--fg)"; tm.dataset.since=arr?arr.at:Date.now(); g.prepend(tm); setTimeout(waitTick,0); }
     }
-    if(st==="hired"){ const d=btn("降車","vacant wide",()=>{ S.sheet="dropoff"; S.editId=null; S.amount=""; S.pay=null; S.tip=0; S.toll=0; S.pax=null; render(); }); d.dataset.free="1"; g.append(d); }
+    if(st==="hired"){ const d=btn("降車","vacant wide",()=>{ S.sheet="dropoff"; S.editId=null; S.amount=""; S.pay=null; S.tkt=null; S.tip=0; S.toll=0; S.pax=null; render(); }); d.dataset.free="1"; g.append(d); }
     if(st!=="off"){
       g.append(btn("手上げ客を見た","small",()=>record("seen_hail")), btn("乗り場に客待ち","small",()=>record("seen_rank")));
       g.append(btn("空車 多い","small",()=>record("taxi_many")), btn("空車 少ない","small",()=>record("taxi_few")),
@@ -620,6 +620,14 @@ function render(){
   if($("chatIn")){ $("chatIn").disabled=lock; $("chatSend").disabled=lock||C.busy; }
   renderLog(); plFill();
 }
+// チケットの会社（任意）。乗客の勤め先にあたるので、自分の記録の中だけに置く（共有・集計の外へは出さない）
+function tktList(){ try{ return JSON.parse(localStorage.getItem("tktList")||"[]"); }catch(e){ return []; } }
+function tktUse(n){ if(!n) return; const l=tktList().filter(x=>x!==n); l.unshift(n); try{ localStorage.setItem("tktList",JSON.stringify(l.slice(0,12))); }catch(e){} }
+function tktUI(o){ const w=document.createElement("div"); w.className="chips"; if(o.pay!=="チケット") return w;
+  const l=document.createElement("div"); l.className="sub"; l.style.width="100%"; l.textContent="チケットの種類（わかれば。サインの名前は入れない）"; w.append(l);
+  [...new Set(["JCB","自社チケット",...tktList()])].slice(0,7).forEach(n=>{ const b=btn(n,"",()=>{ o.tkt=o.tkt===n?null:n; render(); }); b.dataset.free="1"; b.setAttribute("aria-pressed",String(o.tkt===n)); w.append(b); });
+  const t=btn(o.tkt&&![...new Set(["JCB","自社チケット",...tktList()])].slice(0,7).includes(o.tkt)?o.tkt+"（押して直す）":"ほかを入れる","ghost",()=>{ const v=String(prompt("チケットの種類・発行元（カード会社など）",o.tkt||"")||"").trim().slice(0,40); o.tkt=v||null; render(); }); t.dataset.free="1"; w.append(t);
+  return w; }
 function dropSheet(){
   const s=document.createElement("div"); s.className="sheet";
   { const ev=S.editId&&S.events.find(x=>x.id===S.editId); const h=document.createElement("div"); h.className="sub"; h.style.cssText="font-size:18px;color:var(--fg)"; h.textContent=ev?hhmm(ev.at)+" の降車の金額":"降車の金額（あとで入れるなら「スキップ」）"; s.append(h); }
@@ -644,15 +652,16 @@ function dropSheet(){
     ["1","2","3","4+"].forEach(v=>{ const b=btn(v+"人","",()=>{ S.pax=S.pax===v?null:v; render(); }); b.dataset.free="1"; b.setAttribute("aria-pressed",String(S.pax===v)); tips.append(b); }); }
   const row=document.createElement("div"); row.className="grid";
   const ok=btn(S.editId?"金額を直す":"降車を記録","vacant",async()=>{ if(!S.amount) return;
-    if(S.editId){ try{ await S.db.collection("events").doc(S.editId).update({amount:+S.amount,pay:S.pay,tip:S.tip||null,toll:S.toll||null,pax:S.pax||null}); hideErr(); }catch(e){ showErr("直せませんでした（"+(e&&e.code||"不明")+"）。"); } S.editId=null; }
-    else await record("dropoff",{amount:+S.amount,pay:S.pay,tip:S.tip||null,toll:S.toll||null,pax:S.pax||null});
+    if(S.editId){ try{ await S.db.collection("events").doc(S.editId).update({amount:+S.amount,pay:S.pay,tkt:S.pay==="チケット"&&S.tkt||null,tip:S.tip||null,toll:S.toll||null,pax:S.pax||null}); hideErr(); }catch(e){ showErr("直せませんでした（"+(e&&e.code||"不明")+"）。"); } S.editId=null; }
+    else await record("dropoff",{amount:+S.amount,pay:S.pay,tkt:S.pay==="チケット"&&S.tkt||null,tip:S.tip||null,toll:S.toll||null,pax:S.pax||null});
+    if(S.pay==="チケット") tktUse(S.tkt);
     S.sheet=null; render(); });
   ok.dataset.free=S.editId?"1":"";
   ok.disabled=!S.amount;
   const cancel=btn("やめる","ghost",()=>{S.sheet=null;S.editId=null;render();}); cancel.dataset.free="1";
   row.append(cancel, ok);
   if(!S.editId){ const sk=btn("スキップ（金額は停車してから）","ghost wide",async()=>{ await record("dropoff",{amount:null}); S.sheet=null; render(); }); sk.dataset.free="1"; sk.style.cssText="min-height:72px;font-size:21px"; row.append(sk); }
-  s.append(a,pad,chips,tips,row); return s;
+  s.append(a,pad,chips,tktUI(S),tips,row); return s;
 }
 function cancelSheet(){
   const s=document.createElement("div"); s.className="sheet";
@@ -678,7 +687,7 @@ function cancelSheet(){
 function openEdit(id){
   const e=S.events.find(x=>x.id===id); if(!e) return;
   if(moving()){ toast("止まってから直してください",false); return; }
-  S.ed={id, at:e.at, kind:e.kind||null, app:e.app||null, amount:e.type==="dispatch_cancel"?String(e.fee||""):String(e.amount||""), pay:e.pay||null, tip:e.tip||0, toll:e.toll||0, pax:e.pax||null, reason:e.reason||null, note:e.note||"", n:e.n!=null?e.n:null, arm:0};
+  S.ed={id, at:e.at, kind:e.kind||null, app:e.app||null, amount:e.type==="dispatch_cancel"?String(e.fee||""):String(e.amount||""), pay:e.pay||null, tkt:e.tkt||null, tip:e.tip||0, toll:e.toll||0, pax:e.pax||null, reason:e.reason||null, note:e.note||"", n:e.n!=null?e.n:null, arm:0};
   render();
 }
 /* 位置の後入れ：住所（国土地理院の住所検索）か、地図の真ん中で選ぶ */
@@ -747,7 +756,7 @@ function editSheet(){
     const pad=document.createElement("div"); pad.className="pad";
     ["1","2","3","4","5","6","7","8","9","00","0","←"].forEach(k=>{ const b=btn(k,"",()=>{ if(k==="←") d.amount=d.amount.slice(0,-1); else if(d.amount.length<6) d.amount=(d.amount+k).replace(/^0+/,""); render(); }); b.dataset.free="1"; pad.append(b); });
     s.append(pad);
-    if(e.type==="dropoff"){ s.append(sub("支払い")); s.append(chips(useOrder("pay",PAY0),"pay"));
+    if(e.type==="dropoff"){ s.append(sub("支払い")); s.append(chips(useOrder("pay",PAY0),"pay")); s.append(tktUI(d));
       s.append(sub("チップ（営収とは別）")); const c=document.createElement("div"); c.className="chips";
       [0,100,200,300,500,1000].forEach(v=>{ const b=btn(v?fmtYen(v)+"円":"なし","",()=>{ d.tip=v; render(); }); b.dataset.free="1"; b.setAttribute("aria-pressed",String((d.tip||0)===v)); c.append(b); });
       if(d.tip&&![100,200,300,500,1000].includes(d.tip)){ const b=btn(fmtYen(d.tip)+"円","",()=>{}); b.dataset.free="1"; b.setAttribute("aria-pressed","true"); c.append(b); }
@@ -767,7 +776,7 @@ function editSheet(){
     if(e.type==="pickup"){ p.kind=d.kind; if(d.kind==="アプリ・迎車") p.app=d.app; }
     if(e.type==="dispatch_accept"||e.type==="dispatch_arrive") p.app=d.app;
     if(e.type==="dispatch_cancel"){ p.app=d.app; p.reason=d.reason; p.fee=d.amount?+d.amount:null; }
-    if(e.type==="dropoff"){ p.amount=d.amount?+d.amount:null; p.pay=d.pay; p.tip=d.tip||null; p.toll=d.toll||null; p.pax=d.pax||null; }
+    if(e.type==="dropoff"){ p.amount=d.amount?+d.amount:null; p.pay=d.pay; p.tkt=d.pay==="チケット"&&d.tkt||null; if(p.tkt) tktUse(p.tkt); p.tip=d.tip||null; p.toll=d.toll||null; p.pax=d.pax||null; }
     if(e.type==="memo"){ const v=d.note.trim(); if(!v){ toast("メモが空です",false); return; } p.note=v; }
     if(e.n!=null) p.n=d.n;
     if(d.lat!=null){ p.lat=d.lat; p.lng=d.lng; p.acc=null; p.loc="手入力"; p.place=d.place||null;
