@@ -597,9 +597,11 @@ function render(){
       const ch=document.createElement("div"); ch.className="chips wide"; ch.style.gridColumn="1/-1";
       const lb=document.createElement("div"); lb.className="sub"; lb.style.width="100%"; lb.textContent="どのアプリ？"; ch.append(lb);
       useOrder("app",APPS).forEach(a=>{ const b=btn(a,"",()=>{ useCount("app",a); setApp(a); }); b.dataset.free="1"; b.setAttribute("aria-pressed",String(!!acc&&acc.app===a)); ch.append(b); });
+      // 時間指定の予約（鳴った時刻＝受けた時刻はこの記録の時刻）
+      { const rv=btn("予約（時間指定）","",async()=>{ try{ await S.db.collection("events").doc(acc.id).update({reserve:!(acc&&acc.reserve)}); }catch(x){ showErr("記録できませんでした。"); } }); rv.dataset.free="1"; rv.setAttribute("aria-pressed",String(!!acc&&!!acc.reserve)); ch.append(rv); }
       g.append(ch);
       if(st==="dispatch") g.append(btn("迎車先に到着","wait wide",()=>record("dispatch_arrive",{app:acc&&acc.app||null})));
-      g.append(btn("お客さん乗車","hired",()=>record("pickup",{kind:"アプリ・迎車",app:acc&&acc.app||null})), btn("迎車キャンセル","",()=>{ S.sheet="cancel"; S.amount=""; S.reason=null; render(); }));
+      g.append(btn("お客さん乗車","hired",()=>record("pickup",{kind:"アプリ・迎車",app:acc&&acc.app||null,...(acc&&acc.reserve?{reserve:true,booked:acc.at}:{})})), btn("迎車キャンセル","",()=>{ S.sheet="cancel"; S.amount=""; S.reason=null; render(); }));
       if(st==="arrived"){ const arr=[...S.events].reverse().find(x=>x.type==="dispatch_arrive"); const tm=document.createElement("div"); tm.id="waitTimer"; tm.className="lock"; tm.style.gridColumn="1/-1"; tm.style.background="var(--panel)"; tm.style.color="var(--fg)"; tm.dataset.since=arr?arr.at:Date.now(); g.prepend(tm); setTimeout(waitTick,0); }
     }
     if(st==="hired"){ const d=btn("降車","vacant wide",()=>{ S.sheet="dropoff"; S.editId=null; S.amount=""; S.pay=null; S.tkt=null; S.tip=0; S.toll=0; S.pax=null; render(); }); d.dataset.free="1"; g.append(d); }
