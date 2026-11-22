@@ -287,6 +287,9 @@ function hm(ms){ const m=Math.floor(ms/60000); return Math.floor(m/60)+":"+Strin
 function toast(t,ok=true){ let el=$("toast"); if(!el){ el=document.createElement("div"); el.id="toast"; document.body.append(el); }
   el.textContent=t; el.className=ok?"show":"show bad"; try{ navigator.vibrate&&navigator.vibrate(ok?60:[40,60,40]); }catch(e){}
   clearTimeout(el._t); el._t=setTimeout(()=>{ el.className=""; },1800); }
+function parkedMin(){ const b=trackBuf(), q=S.pos; if(!b||!q||Date.now()-q.at>120000||q.acc>50) return 0; const now=Date.now()/1000; let since=null;
+  for(let i=b.pts.length-1;i>=0;i--){ const [t,la,ln]=b.pts[i]; if(now-t>900) break; if(Math.hypot((la-q.lat)*111000,(ln-q.lng)*91000)>40) break; since=t; }
+  return since==null?0:(now-since)/60; }
 const ONCE=["taxi_many","taxi_few","people_many","people_few"];
 async function record(type, extra={}){
   if(ONCE.includes(type)){ const last=[...S.events].reverse().find(e=>e.type===type); if(last&&Date.now()-last.at<60000){ toast("✓ もう記録してあります（"+TYPE[type]+"）"); return; } }
@@ -296,6 +299,9 @@ async function record(type, extra={}){
     if(last&&(last.type==="wait_end"||last.type==="stand_end")&&last.src==="auto"&&Date.now()-last.at<300000){
       try{ await S.db.collection("events").doc(last.id).delete(); }catch(e){}
       extra={...extra,kind:last.type==="wait_end"?"付け待ち":"乗り場"}; } }
+  // 乗車の区分（11/23 決めた）：停まって待っている車に客が来たら「付け待ち」、走っていて止められたら「手上げ」。
+  // 「乗車（手上げ）」を押しても、直前4分以上ほぼ同じ場所（40m 以内）に停まっていたら付け待ちとして記録する（信号待ちくらいでは変わらない）
+  if(type==="pickup"&&extra.kind==="手上げ"&&parkedMin()>=4){ extra={...extra,kind:"付け待ち",parked:true}; toast("停まって待っていたので「付け待ち」で記録しました（直すときは履歴から）"); }
   const p=S.pos && Date.now()-S.pos.at<120000 ? S.pos : null;
   const doc={ type, at:Date.now(), ind:"taxi", shift:S.shift?S.shift.id:null,
     lat:p?p.lat:null, lng:p?p.lng:null, acc:p?p.acc:null, ...extra };
