@@ -1401,6 +1401,7 @@ function nipFind(L,re,get,bad){ const hasBox=L.length&&L.every(l=>l.h>0);
 function nippoParse(rs){ const L=nipLines(rs), all=L.map(l=>l.t).join("\n"), o={};
   const yen=t=>{ const v=nipNum(t); return v!=null&&v>=500&&v<1000000?Math.round(v):null; };
   o.total=nipFind(L,/(総?営業?収入?|営\s*収|運\s*収|運賃\s*(合計|収入)?|売上\s*(合計)?|税込\s*合計|水揚げ?)(?!\s*(回|率|km))(\s*合\s*計)?/,yen,/(税抜|回数|1回|平均|単価|km|率)/);
+  { const ns=[]; L.forEach(l=>{ (l.t.replace(/(\d)\s*[,，]\s*(?=\d{3})/g,"$1").match(/\d+/g)||[]).forEach(x=>{ const v=Number(x); if(v>=400&&v<=99990&&v%10===0) ns.push(v); }); }); o.nums=ns.slice(0,300); }
   if(o.total==null) o.total=nipFind(L,/^\s*(総\s*)?合\s*計(?!\s*(回|点|km))/,yen,/回数/);
   o.count=nipFind(L,/(乗車|営業|実車|輸送)?\s*回\s*数|乗車人?数|営業回/,t=>{ const v=nipNum(t); return v!=null&&v>=1&&v<=99&&Number.isInteger(v)?v:null; },/(迎車|配車|メーター)/);
   o.start=nipFind(L,/出\s*庫(時刻|時間)?/,nipTime); o.end=nipFind(L,/(入|帰)\s*庫(時刻|時間)?/,nipTime);
@@ -1430,7 +1431,7 @@ function nipConfirm(o){ const out=$("nipOut"); out.replaceChildren();
     const t=num(tot); if(!t){ err.textContent="営収を入れてください"; return; } const d=dt.value; if(!/^\d{4}-\d{2}-\d{2}$/.test(d)){ err.textContent="日付を入れてください"; return; }
     let hours=null; const a=toMin(st.value), b=toMin(en.value); if(a!=null&&b!=null){ let x=b-a; if(x<=0) x+=1440; hours=Math.round(x/6)/10; }
     const mine=sh&&d===sd; const id=mine?N.pick:"past-"+d.replace(/-/g,"");
-    const doc={ shift:mine?N.pick:null, at:Date.now(), date:d, total:Math.round(t), total_ex:Math.round(t/1.1), count:num(cnt), rides:[], rests:[], start:st.value||"", end:en.value||"", hours, km:num(km), hired_rate:num(hr), src:mine?"ocr":"past", verified:"photo-device" };
+    const doc={ shift:mine?N.pick:null, at:Date.now(), date:d, total:Math.round(t), total_ex:Math.round(t/1.1), count:num(cnt), rides:[], rests:[], start:st.value||"", end:en.value||"", hours, km:num(km), hired_rate:num(hr), nums:o.nums||[], src:mine?"ocr":"past", verified:"photo-device" };
     try{ const ref=S.db.collection("reports").doc(id); const old=await ref.get(); const x=old.exists?old.data():{}; await ref.set({...x,...doc,rides:x.rides&&x.rides.length?x.rides:[],rests:x.rests||[]});
       N.pick=id; if(N.have) N.have.add(id); try{ const rs=await S.db.collection("reports").get(); N.past=rs.docs.filter(q=>q.id.startsWith("past-")).map(q=>({id:q.id,...q.data()})).sort((p,q)=>p.date<q.date?1:-1); }catch(e){}
       toast("✓ 日報を保存しました"); V.dataAt=0; G.monthFor=null; nipRender(); nipShowSaved(id); }
@@ -1473,6 +1474,25 @@ async function nipRead(files){
   }
   N.busy=false; $("nipBtn").disabled=false; $("nipFile").value="";
 }
+// 日報の合計・回数と、日報に印刷された金額の中にアプリの各乗車の金額があるかで答え合わせする（行の読み取りずれに強い）
+function nipCheck(w,doc,appRides,appSum,row){
+  const tot=doc.total, cnt=doc.count;
+  if(cnt!=null) w.append(row("乗車回数",appRides.length+"回",cnt+"回",appRides.length===cnt));
+  w.append(row("営収（運賃）",fmtYen(appSum)+"円",fmtYen(tot)+"円",appSum===tot));
+  const pool=(doc.nums||[]).slice(), notFound=[], noAmt=[];
+  const miss=[]; appRides.forEach(e=>{ if(!e.amount){ noAmt.push(hhmm(e.at)+"　金額なし"); return; } const i=pool.indexOf(e.amount); if(i>=0) pool.splice(i,1); else miss.push(e); });
+  { const ti=pool.indexOf(tot); if(ti>=0) pool.splice(ti,1); }
+  // 打ち間違いの候補：桁の入れ替え、または1桁だけ違う日報の金額
+  const near=(a,c)=>{ const x=String(a), y=String(c); if(x.length!==y.length||a===c) return false; if([...x].sort().join("")===[...y].sort().join("")) return true; let n=0; for(let k=0;k<x.length;k++) if(x[k]!==y[k]) n++; return n===1; };
+  miss.forEach(e=>{ const j=pool.findIndex(c=>near(e.amount,c)); let t=hhmm(e.at)+"　"+fmtYen(e.amount)+"円"; if(j>=0){ t+=" → 日報では "+fmtYen(pool[j])+"円 かも"; pool.splice(j,1); } notFound.push(t); });
+  const list=(title,arr,note)=>{ if(!arr.length) return; w.append(mk("h4",null,title+"（"+arr.length+"）")); const ul=document.createElement("ul"); arr.forEach(t=>ul.append(mk("li",null,t))); w.append(ul); if(note) w.append(mk("p","font-size:16px",note,"note")); };
+  list("金額が入っていない乗車",noAmt,"履歴から金額を入れてください。");
+  if(doc.nums&&doc.nums.length) list("日報に見当たらない金額",notFound,"入力ミスかもしれません。日報で同じ時刻の乗車を確かめて、違っていれば履歴から直してください（読み取りの見落としのこともあります）。");
+  const d=tot-appSum, dc=cnt!=null?cnt-appRides.length:0;
+  if(d===0&&dc===0&&!notFound.length&&!noAmt.length) w.append(mk("p","font-size:20px","記録と日報の合計・回数がぴったり合っています。","ok"));
+  else { const m=[]; if(dc>0) m.push("日報の方が "+dc+" 回多い → 乗車の押し忘れがあるかもしれません"); if(dc<0) m.push("アプリの方が "+(-dc)+" 回多い → 押し間違い・二重の記録かもしれません"); if(d) m.push("営収の差 "+(d>0?"+":"")+fmtYen(d)+"円（日報−アプリ）");
+    m.forEach(t=>w.append(mk("p","font-size:18px",t,"err"))); }
+}
 function nipShow(doc,evs){
   const out=$("nipOut"); out.replaceChildren();
   const w=document.createElement("div"); w.className="cmp";
@@ -1505,6 +1525,7 @@ function nipShow(doc,evs){
       out.append(w); return; }
     const h5=document.createElement("h4"); h5.textContent="アプリの記録との突き合わせ"; w.append(h5); }
   const hd=document.createElement("div"); hd.className="row"; ["","アプリ","日報"].forEach(t=>{ const s=document.createElement("span"); s.className="sub"; s.textContent=t; hd.append(s); }); w.append(hd);
+  if(!doc.rides.length&&doc.total!=null){ nipCheck(w,doc,appRides,appSum,row); out.append(w); return; }
   w.append(row("乗車回数",appRides.length+"回",doc.rides.length+"回",appRides.length===doc.rides.length));
   w.append(row("営収（運賃）",fmtYen(appSum)+"円",fmtYen(repSum)+"円",appSum===repSum));
   const msg=[];
