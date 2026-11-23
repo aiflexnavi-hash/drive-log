@@ -27,9 +27,9 @@ header{display:flex;align-items:center;justify-content:space-between;gap:8px;fle
 .s-vacant .lamp{background:var(--vacant)} .s-cruise .lamp{background:var(--info)} .s-dispatch .lamp,.s-arrived .lamp{background:var(--hired)} .s-wait .lamp,.s-stand .lamp{background:var(--wait)} .s-hired .lamp{background:var(--hired)}
 .gps{font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:3px 10px}
 .gps.ok{color:var(--vacant);border-color:var(--vacant)} .gps.bad{color:var(--hired);border-color:var(--hired)}
-.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;font-variant-numeric:tabular-nums}
-.stat{background:var(--panel);border-radius:10px;padding:8px 10px}
-.stat b{display:block;font-size:26px} .stat span{font-size:14px;color:var(--muted);letter-spacing:.06em}
+.stats{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1.2fr) minmax(0,.75fr) minmax(0,.95fr);gap:6px;font-variant-numeric:tabular-nums}
+.stat{background:var(--panel);border-radius:10px;padding:8px 8px}
+.stat b{display:block;font-size:clamp(17px,5.6vw,26px);white-space:nowrap} .stat span{font-size:14px;color:var(--muted);letter-spacing:.06em}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 button{font:inherit;color:var(--fg);background:var(--panel);border:1px solid var(--line);border-radius:14px;min-height:88px;font-size:26px;font-weight:800;line-height:1.25;padding:6px 8px;cursor:pointer;touch-action:manipulation}
 button:focus-visible{outline:3px solid var(--info);outline-offset:2px}
