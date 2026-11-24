@@ -209,7 +209,7 @@ const TYPE = {
   shift_start:"出庫", shift_end:"入庫（乗務終了）", return_start:"帰庫開始", wait_start:"付け待ち開始", wait_end:"付け待ち離脱",
   nagashi_start:"流し開始", dispatch_accept:"アプリ受注（迎車へ）", dispatch_arrive:"迎車先に到着", dispatch_cancel:"迎車キャンセル", stand_start:"乗り場に並ぶ", stand_pos:"乗り場の順番", wait_pos:"付け待ちの順番", other_count:"周りの空車", stand_behind:"後ろの台数", stand_end:"乗り場を離れる",
   pickup:"乗車", dropoff:"降車", taxi_many:"空車 多い", taxi_few:"空車 少ない",
-  people_many:"人通り 多い", people_few:"人通り 少ない", seen_hail:"手上げ客を見た", seen_rank:"乗り場に客待ち", memo:"メモ", rest_start:"休憩開始", rest_end:"休憩終了"
+  people_many:"人通り 多い", people_few:"人通り 少ない", seen_hail:"手上げ客を見た", seen_rank:"乗り場に客待ち", memo:"メモ", ring:"アプリが鳴った（取らず）", rest_start:"休憩開始", rest_end:"休憩終了"
 };
 const APPS = ["GO","DiDi","S.RIDE","Uber","無線","その他"];
 const PAY0 = ["現金","カード","QR","アプリ","チケット"];
@@ -572,6 +572,7 @@ function render(){
     if(st==="vacant"||st==="cruise"){ g.append(btn("乗車（手上げ）","hired",()=>record("pickup",{kind:"手上げ"})), btn("アプリ受注（迎車へ）","hired",()=>record("dispatch_accept")));
       g.append(btn("付け待ち開始","wait",()=>record("wait_start")), btn("乗り場に並ぶ","wait",()=>record("stand_start")));
       const rb=btn("休憩開始","ghost wide",()=>record("rest_start")); g.append(rb); }
+    if(["vacant","cruise","wait","stand"].includes(st)) ringRow(g);
     if(st==="rest"){ const re=btn("休憩終了","vacant wide",()=>record("rest_end")); re.dataset.free="1"; re.style.cssText="min-height:84px;font-size:26px"; g.append(re); }
     if(st==="stand"){ g.append(btn("乗車","hired",()=>record("pickup",{kind:"乗り場"})), btn("列を離れる（乗せずに）","",()=>record("stand_end",{why:"乗せずに"}))); }
     if(st==="stand"||st==="wait"){ const PT=st==="stand"?"stand_pos":"wait_pos", ST=st==="stand"?"stand_start":"wait_start";
@@ -630,6 +631,12 @@ function tktUI(o){ const w=document.createElement("div"); w.className="chips"; i
   [...new Set(["JCB","自社チケット",...tktList()])].slice(0,7).forEach(n=>{ const b=btn(n,"",()=>{ o.tkt=o.tkt===n?null:n; render(); }); b.dataset.free="1"; b.setAttribute("aria-pressed",String(o.tkt===n)); w.append(b); });
   const t=btn(o.tkt&&![...new Set(["JCB","自社チケット",...tktList()])].slice(0,7).includes(o.tkt)?o.tkt+"（押して直す）":"ほかを入れる","ghost",()=>{ const v=String(prompt("チケットの種類・発行元（カード会社など）",o.tkt||"")||"").trim().slice(0,40); o.tkt=v||null; render(); }); t.dataset.free="1"; w.append(t);
   return w; }
+// 配車アプリが鳴ったけど取らなかった（取った分は「アプリ受注」で数える）。どのアプリが、いつ・どこで鳴ったかの記録
+function ringRow(g){ const ch=document.createElement("div"); ch.className="chips"; ch.style.gridColumn="1/-1";
+  const lb=document.createElement("div"); lb.className="sub"; lb.style.width="100%"; lb.textContent="配車アプリが鳴った（取らなかった）"; ch.append(lb);
+  useOrder("app",APPS).filter(a=>a!=="無線"&&a!=="その他").forEach(a=>{ const b=btn(a,"",()=>record("ring",{app:a})); b.dataset.free="1"; ch.append(b); });
+  const last=[...S.events].reverse().find(e=>e.type==="ring"); if(last&&Date.now()-last.at<600000){ const n=mk("div","font-size:14px;width:100%",hhmm(last.at)+" に "+last.app+" を記録しました","note"); ch.append(n); }
+  g.append(ch); }
 function dropSheet(){
   const s=document.createElement("div"); s.className="sheet";
   { const ev=S.editId&&S.events.find(x=>x.id===S.editId); const h=document.createElement("div"); h.className="sub"; h.style.cssText="font-size:18px;color:var(--fg)"; h.textContent=ev?hhmm(ev.at)+" の降車の金額":"降車の金額（あとで入れるなら「スキップ」）"; s.append(h); }
@@ -1689,7 +1696,7 @@ async function myStatsRender(){
   try{ evs=(await S.db.collection("events").get()).docs.map(d=>d.data()); }catch(e){}
   const toMs=(date,hm,after)=>{ const m=/^(\d{1,2}):(\d{2})/.exec(String(hm||"")); if(!m||!date) return null; let t=new Date(date+"T00:00:00").getTime()+(Number(m[1])*60+Number(m[2]))*60000; if(after!=null&&t<after) t+=86400000; return t; };
   // 乗務ごとに「勤務時間帯」と「乗車（時刻・運賃・乗車地）」をそろえる。日報があればそちらを優先
-  const duty=[], rides=[], seen=new Set();
+  const duty=[], rides=[], seen=new Set(), rings=evs.filter(e=>e.type==="ring"||e.type==="dispatch_accept").map(e=>({t:e.at,app:e.app||null,took:e.type==="dispatch_accept"}));
   reps.forEach(r=>{ if(!r.date||!Array.isArray(r.rides)||!r.rides.length) return;
     const st=toMs(r.date,r.start), en=st!=null?toMs(r.date,r.end,st):null;
     if(st!=null&&en!=null&&en>st) duty.push({st,en,date:r.date});
@@ -1699,7 +1706,9 @@ async function myStatsRender(){
   shifts.forEach(sh=>{ if(seen.has(sh.id)||!sh.start||!sh.end) return;
     const d=new Date(sh.start), date=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
     const my=evs.filter(e=>e.shift===sh.id).sort((a,b)=>a.at-b.at); let on=null;
-    const rs=[]; my.forEach(e=>{ if(e.type==="pickup") on=e; if(e.type==="dropoff"&&Number(e.amount)>0){ rs.push({t:on?on.at:e.at,fare:Number(e.amount),from:on&&on.place||null,kind:on&&on.kind||null,app:on&&on.app||null,pay:e.pay||null,date}); on=null; } });
+    const rs=[]; let ws=null; my.forEach(e=>{ if(e.type==="wait_start"||e.type==="stand_start") ws=e; if(e.type==="wait_end"||e.type==="stand_end") ws=null;
+      if(e.type==="pickup"){ on=e; on._w=(ws&&(on.kind==="付け待ち"||on.kind==="乗り場"))?(on.at-ws.at)/60000:null; ws=null; }
+      if(e.type==="dropoff"&&Number(e.amount)>0){ rs.push({t:on?on.at:e.at,fare:Number(e.amount),from:on&&on.place||null,kind:on&&on.kind||null,app:on&&on.app||null,pay:e.pay||null,date,wait:on?on._w:null,ride:on?(e.at-on.at)/60000:null}); on=null; } });
     if(!rs.length) return; duty.push({st:sh.start,en:sh.end,date}); rides.push(...rs); });
   if(!duty.length){ box.append(note("まだデータがありません。日報を読み込むか、記録した乗務が増えると出ます。")); return; }
   box.append(note(duty.length+"乗務・"+rides.length+"乗車の記録から出しています（自分のデータだけ）。回数が少ない所は、たまたまの可能性があります。"));
@@ -1731,6 +1740,13 @@ async function myStatsRender(){
   box.append(sub("よく乗せている乗車地（2回以上）"));
   if(ps.length) box.append(tbl(["乗車地","回数","平均運賃"],ps.map(([k,v])=>({cells:[k,v.n+"回",fmtYen(Math.round(v.s/v.n))+"円"]}))));
   else box.append(note("乗車地が分かるのは、乗車ごとの明細がある日報だけです。まだ2回以上の場所がありません。"));
+  // 付け待ち・乗り場ごと：平均単価・高額（5,000円以上）が何回に1回か・待ち時間・1時間あたりの見込み
+  { const HI=5000, W={}; rides.forEach(r=>{ if(r.wait==null||!r.from) return; const k=String(r.from).trim()+"（"+r.kind+"）"; const o=W[k]=W[k]||{n:0,s:0,hi:0,w:0,r:0,rn:0}; o.n++; o.s+=r.fare; if(r.fare>=HI) o.hi++; o.w+=r.wait; if(r.ride!=null){ o.r+=r.ride; o.rn++; } });
+    const ws=Object.entries(W).filter(([k,v])=>v.n>=2).sort((a,b)=>b[1].n-a[1].n).slice(0,10);
+    box.append(sub("付け待ち・乗り場ごと（2回以上）"));
+    if(ws.length){ box.append(tbl(["場所","回数","平均単価","5千円以上","平均の待ち","1時間の見込み"],ws.map(([k,v])=>{ const avg=v.s/v.n, w=v.w/v.n, rd=v.rn?v.r/v.rn:15; return {cells:[k,v.n+"回",fmtYen(Math.round(avg))+"円",v.hi?Math.round(v.n/v.hi)+"回に1回":"なし",Math.round(w)+"分",fmtYen(Math.round(avg/((w+rd)/60)))+"円"]}; })));
+      box.append(note("1時間の見込み＝平均単価 ÷（平均の待ち＋平均の乗車時間）。戻ってくる時間は入っていないので、実際はこれより低くなります。")); }
+    else box.append(note("「付け待ち開始」「乗り場に並ぶ」を押してから乗せると、場所ごとの待ち時間と見込みが出ます。")); }
   box.append(note("緑の行は、その中で営収/h が高い所です（勤務3時間以上・2乗務以上の所から選んでいます）。"));
   // 乗り方・支払い・配車アプリの比率
   const ratio=(title,key,label)=>{ const m={}; let n=0; rides.forEach(r=>{ const k=r[key]; if(!k) return; n++; (m[k]=m[k]||{n:0,s:0}); m[k].n++; m[k].s+=r.fare; });
@@ -1739,6 +1755,11 @@ async function myStatsRender(){
   ratio("乗り方の比率","kind","乗車ボタンで記録すると出ます。");
   ratio("支払いの比率","pay","降車で支払い方法を選ぶと出ます。");
   ratio("配車アプリの比率","app","迎車でアプリを選ぶと出ます。");
+  { const dH=duty.reduce((a,d)=>a+(d.en-d.st)/3600000,0), m={}; rings.forEach(r=>{ if(!r.app) return; const o=m[r.app]=m[r.app]||{n:0,took:0}; o.n++; if(r.took) o.took++; });
+    box.append(sub("配車アプリの鳴り（取らなかった分も）"));
+    const es=Object.entries(m).sort((a,b)=>b[1].n-a[1].n);
+    if(es.length&&dH>=1){ box.append(tbl(["アプリ","鳴った","取った","鳴る間隔"],es.map(([k,v])=>({cells:[k,v.n+"回",v.took+"回","約"+Math.round(dH*60/v.n)+"分に1回"]})))); box.append(note("間隔は、記録した乗務の時間（"+Math.round(dH)+"時間）で割った目安です。")); }
+    else box.append(note("空車のときに「配車アプリが鳴った」でアプリを押すと、取らなかった分も数えます。")); }
   // 年間・年度のまとめ（日報とアプリの記録の合計）
   try{ const days=await dayData(); const ym={}, yr={}, fy={};
     Object.keys(days).forEach(k=>{ const p=period(k); if(!p) return; const lab=p.to.slice(0,7);
