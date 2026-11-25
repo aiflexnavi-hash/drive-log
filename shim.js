@@ -89,7 +89,7 @@ window.NO_CHAT=true;   // 雑談の相談はアプリに入れない
   }
   function pill(){
     const el=document.getElementById("sync"); if(!el) return;
-    if(!API){ el.textContent="保存：未設定"; el.className="gps bad"; return; }
+    if(!API){ el.textContent="保存：このスマホの中"; el.className="gps ok"; return; }
     if(oldServer){ el.textContent="スマホに保存中（Google 側の差し替え待ち）"+(queue.length?" "+queue.length+"件":""); el.className="gps"; el.style.color="var(--wait)"; el.style.borderColor="var(--wait)"; return; }
     if(queue.length){ el.textContent="未送信 "+queue.length+"件"+(failed?"（電波待ち）":""); el.className="gps"; el.style.color="var(--wait)"; el.style.borderColor="var(--wait)"; return; }
     el.style.color=""; el.style.borderColor="";
@@ -165,7 +165,7 @@ window.NO_CHAT=true;   // 雑談の相談はアプリに入れない
 
   window.claude={ use:async name=>{
     if(name==="sample") return API&&aiOn?sample:null;
-    if(name==="db") return (API||TESTER)?db:null;
+    if(name==="db") return db;   // 保存先がなくても、スマホの中だけで使える
     if(name==="downloads") return downloads;
     if(name==="tts") return makeTts();
     return null;
@@ -209,7 +209,11 @@ window.NO_CHAT=true;   // 雑談の相談はアプリに入れない
         bf.addEventListener("change",()=>{ if(bf.files[0]) importFile(bf.files[0]); bf.value=""; });
         bk.append(bs,bp,sv,bl,bf); wrap.append(bk); }
       if(TESTER&&window.TesterUI) window.TesterUI.mount(wrap,{write,store,DEV});
-      if(!API&&!TESTER){ const w=document.createElement("p"); w.className="err"; w.style.fontSize="18px"; w.textContent="送られてきたリンクから開き直してください（保存先の情報がリンクに入っています）。"; wrap.prepend(w); }
+      // リンクだけで開いた人：記録はこのスマホ（ブラウザ）の中だけに保存して使ってもらう
+      if(!API&&!TESTER&&!LS.get("localOk",false)){ const w=document.createElement("div"); w.className="note"; w.style.cssText="font-size:17px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:10px";
+        w.textContent="お試し版です。記録はこのスマホの中だけに保存されます（地名を出すため、位置だけを国土地理院に問い合わせます。だれの記録かは送りません）。ブラウザの「ホーム画面に追加」で開くと消えにくくなります。ときどき下の「記録のバックアップ」で保存してください。";
+        const ok=document.createElement("button"); ok.type="button"; ok.className="ghost"; ok.textContent="わかった"; ok.style.cssText="display:block;margin-top:8px;min-height:44px"; ok.addEventListener("click",()=>{ LS.set("localOk",true); w.remove(); });
+        w.append(ok); wrap.prepend(w); }
     }
     if("serviceWorker" in navigator){ /* なし：常に最新を読む */ }
   });
