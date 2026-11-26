@@ -1502,8 +1502,22 @@ function nipTplLearn(L,saved){ if(!L||!L.length||!L.every(l=>l.h>0)) return 0; c
   Object.keys(NIP_GET).forEach(k=>{ const v=saved[k]; if(v==null||v==="") return; const hit=P.filter(l=>{ const g=NIP_GET[k](l.t); return g!=null&&String(g)===String(v); }); if(hit.length===1) f[k]=[hit[0].x+hit[0].w/2,hit[0].y+hit[0].h/2]; });
   return nipTplSave(L,f); }
 // 初めての形の日報：読み取った文字と位置だけを AI に送り、どこが何かを教えてもらって覚える（次からは AI なし）
+// 外に送る前に、氏名・車番・乗務員番号・会社名を伏せる（プライバシーポリシー「氏名と車番は送らない」。パールさん 11/26）。
+// その項目名の行の、同じ行の右側と、すぐ下の行（表の見出しの下）の文字を「＊」にする。数字・時刻・地名は残す
+const NIP_PII=/(乗務員|運転者|運転手)\s*(名|氏名)|氏\s*名|車\s*(番|両番号|号)|乗務員\s*(コード|番号|CD)|社員\s*(番号|コード)|会社名|事業者|営業所名/;
+const NIP_LAB=/車両名|日時|回数|時間|料金|距離|km|営業|営走|走行|計数|合計|金額|迎車|出庫|入庫|日報/;
+function nipMask(L){ const T=l=>l.text!=null?l.text:l.t, hit=L.filter(l=>NIP_PII.test(T(l)));
+  const star=t=>String(t).replace(/[^\s|:：\/]/g,"＊");
+  return L.map(l=>{ let t=T(l);
+    if(NIP_PII.test(t)){ const m=t.match(NIP_PII); const i=t.indexOf(m[0])+m[0].length; t=t.slice(0,i)+star(t.slice(i)); }
+    else if(hit.some(h=>{ if(h.pg!==l.pg) return false; const hh=h.h||20, cy=l.y+(l.h||0)/2;
+        const below=l.y>h.y&&l.y-h.y<hh*3.5&&l.x<h.x+h.w*1.5&&l.x+l.w>h.x-h.w*0.5;
+        const right=Math.abs(cy-(h.y+hh/2))<hh*0.7&&l.x>h.x+h.w*0.8&&l.x-(h.x+h.w)<h.w*4;
+        return below||right; })&&!NIP_LAB.test(t)) t=star(t);
+    t=t.replace(/([ァ-ヶー]+\s*)?[^\s|]*\d+\s*号\s*車/g,m=>star(m));
+    return {...l,text:t,t}; }); }
 async function nipAskLayout(L,o){ const ask=S.layout; if(!ask||!L.length||!L.every(l=>l.h>0)) return false;
-  const P=L.filter(l=>l.pg===0); let r=null; try{ r=await ask(P.map(l=>({t:l.text!=null?l.text:l.t,x:l.x,y:l.y,w:l.w}))); }catch(e){ return false; } if(!r||typeof r!=="object") return false;
+  const P=L.filter(l=>l.pg===0); let r=null; try{ r=await ask(nipMask(P).map(l=>({t:l.t,x:l.x,y:l.y,w:l.w}))); }catch(e){ return false; } if(!r||typeof r!=="object") return false;
   const f={}; let n=0;
   Object.keys(NIP_GET).forEach(k=>{ const e=r[k]; if(!e||typeof e!=="object") return; const l=P[Number(e.i)]; let v=e.v;
     if(v!=null&&v!==""){ v=(k==="start"||k==="end")?nipTime(String(v)):NIP_GET[k](String(v)); if(v!=null){ o[k]=v; n++; } }
@@ -1589,7 +1603,7 @@ function nippoParse(rs){ const L=nipLines(rs), all=L.map(l=>l.t).join("\n"), o={
 function nipDumpBtn(L){ const dbg=btn("読み取った文字をファイルに保存（作る人に送る用）","ghost",async()=>{ const j=JSON.stringify({v:1,at:new Date().toISOString(),lines:L.map(l=>({t:l.text!=null?l.text:l.t,x:l.x,y:l.y,w:l.w,h:l.h,pg:l.pg}))});
       try{ if(S.dl) await S.dl.save({filename:"nippo-ocr-"+ymd(new Date())+".json",data:new Blob([j],{type:"application/json"})}); else { const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([j],{type:"application/json"})); a.download="nippo-ocr.json"; document.body.append(a); a.click(); a.remove(); } toast("✓ 保存しました"); }catch(e){ toast("保存できませんでした",false); } });
   dbg.dataset.free="1"; dbg.style.fontSize="15px"; dbg.style.marginTop="10px"; return dbg; }
-function nipLastSet(L){ const a=L.map(l=>({text:l.text!=null?l.text:l.t,t:l.t,x:l.x,y:l.y,w:l.w,h:l.h,pg:l.pg})); try{ localStorage.setItem("nipLastOcr",JSON.stringify(a)); }catch(e){}
+function nipLastSet(L0){ const L=nipMask(L0); const a=L.map(l=>({text:l.text!=null?l.text:l.t,t:l.t,x:l.x,y:l.y,w:l.w,h:l.h,pg:l.pg})); try{ localStorage.setItem("nipLastOcr",JSON.stringify(a)); }catch(e){}
   // 読み取りを良くするため、文字と位置を保存先にも送る（写真は送らない）。古いものは自分で消える量に抑える
   try{ const ln=a.slice(0,500).map(l=>[String(l.text||"").slice(0,60),Math.round(l.x||0),Math.round(l.y||0),Math.round(l.w||0),Math.round(l.h||0),l.pg||0]); let j=JSON.stringify(ln); while(j.length>40000&&ln.length>50){ ln.length=Math.floor(ln.length*0.8); j=JSON.stringify(ln); }
     S.db.collection("ocrlog").doc("n"+Date.now()).set({at:Date.now(),kind:"nippo",lines:ln}).catch(()=>{}); }catch(e){} }
