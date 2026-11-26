@@ -61,6 +61,7 @@ window.NO_CHAT=true;   // 雑談の相談はアプリに入れない
     if(!API) return;
     try{
       const j=await call({op:"pull"});
+      if(!!j.layout!==LS.get("layoutOn",false)) LS.set("layoutOn",!!j.layout);
       if(!!j.ai!==aiOn){ aiOn=!!j.ai; LS.set("aiOn",aiOn); if(aiOn) setTimeout(()=>location.reload(),300); }
       const seen=new Set();
       let diff=false;
@@ -165,6 +166,8 @@ window.NO_CHAT=true;   // 雑談の相談はアプリに入れない
 
   window.claude={ use:async name=>{
     if(name==="sample") return API&&aiOn?sample:null;
+    // 日報の形を1回だけ AI に聞く（読み取った文字と位置だけを送る。写真は送らない）
+    if(name==="layout") return API&&LS.get("layoutOn",false)?(async lines=>{ const j=await call({op:"layout",lines:lines.slice(0,700)}); return j.layout||null; }):null;
     if(name==="db") return db;   // 保存先がなくても、スマホの中だけで使える
     if(name==="downloads") return downloads;
     if(name==="tts") return makeTts();
