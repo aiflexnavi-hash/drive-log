@@ -1550,7 +1550,10 @@ function nippoParse(rs){ const L=nipLines(rs), all=L.map(l=>l.t).join("\n"), o={
 function nipDumpBtn(L){ const dbg=btn("読み取った文字をファイルに保存（作る人に送る用）","ghost",async()=>{ const j=JSON.stringify({v:1,at:new Date().toISOString(),lines:L.map(l=>({t:l.text!=null?l.text:l.t,x:l.x,y:l.y,w:l.w,h:l.h,pg:l.pg}))});
       try{ if(S.dl) await S.dl.save({filename:"nippo-ocr-"+ymd(new Date())+".json",data:new Blob([j],{type:"application/json"})}); else { const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([j],{type:"application/json"})); a.download="nippo-ocr.json"; document.body.append(a); a.click(); a.remove(); } toast("✓ 保存しました"); }catch(e){ toast("保存できませんでした",false); } });
   dbg.dataset.free="1"; dbg.style.fontSize="15px"; dbg.style.marginTop="10px"; return dbg; }
-function nipLastSet(L){ try{ localStorage.setItem("nipLastOcr",JSON.stringify(L.map(l=>({text:l.text!=null?l.text:l.t,t:l.t,x:l.x,y:l.y,w:l.w,h:l.h,pg:l.pg})))); }catch(e){} }
+function nipLastSet(L){ const a=L.map(l=>({text:l.text!=null?l.text:l.t,t:l.t,x:l.x,y:l.y,w:l.w,h:l.h,pg:l.pg})); try{ localStorage.setItem("nipLastOcr",JSON.stringify(a)); }catch(e){}
+  // 読み取りを良くするため、文字と位置を保存先にも送る（写真は送らない）。古いものは自分で消える量に抑える
+  try{ const ln=a.slice(0,500).map(l=>[String(l.text||"").slice(0,60),Math.round(l.x||0),Math.round(l.y||0),Math.round(l.w||0),Math.round(l.h||0),l.pg||0]); let j=JSON.stringify(ln); while(j.length>40000&&ln.length>50){ ln.length=Math.floor(ln.length*0.8); j=JSON.stringify(ln); }
+    S.db.collection("ocrlog").doc("n"+Date.now()).set({at:Date.now(),kind:"nippo",lines:ln}).catch(()=>{}); }catch(e){} }
 function nipLastGet(){ try{ return JSON.parse(localStorage.getItem("nipLastOcr")||"null"); }catch(e){ return null; } }
 async function nipOcr(files){
   if(N.busy||!files||!files.length) return;

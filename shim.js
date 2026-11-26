@@ -29,7 +29,7 @@ window.NO_CHAT=true;   // 雑談の相談はアプリに入れない
   const store=LS.get("docs2",{});      // "col/id" -> {c,i,u,d}
   let queue=LS.get("queue2",[]);       // 送信待ち "col/id"
   // 走った道は量が多いので、送り終えた45日より前の分はスマホから消す（Google 側には残る）
-  { const old=Date.now()/1000-45*86400; let n=0; Object.keys(store).forEach(k=>{ const s=store[k]; if(s.c==="tracks"&&s.d&&s.d.to<old&&!queue.includes(k)){ delete store[k]; n++; } }); if(n) LS.set("docs2",store); }
+  { const old=Date.now()/1000-45*86400; let n=0; Object.keys(store).forEach(k=>{ const s=store[k]; if((s.c==="tracks"&&s.d&&s.d.to<old||s.c==="ocrlog")&&!queue.includes(k)){ delete store[k]; n++; } }); if(n) LS.set("docs2",store); }
   const listeners=new Set();
   let changeTimer=null;
   function save(){ LS.set("docs2",store); LS.set("queue2",queue); }
@@ -65,7 +65,7 @@ window.NO_CHAT=true;   // 雑談の相談はアプリに入れない
       if(!!j.ai!==aiOn){ aiOn=!!j.ai; LS.set("aiOn",aiOn); if(aiOn) setTimeout(()=>location.reload(),300); }
       const seen=new Set();
       let diff=false;
-      j.docs.forEach(s=>{ const k=s.c+"/"+s.i; seen.add(k); if(queue.includes(k)) return; const cur=store[k]; if(!cur||cur.u<s.u){ store[k]={c:s.c,i:s.i,u:s.u,d:s.x?null:s.d}; diff=true; } });
+      j.docs.forEach(s=>{ if(s.c==="ocrlog") return; const k=s.c+"/"+s.i; seen.add(k); if(queue.includes(k)) return; const cur=store[k]; if(!cur||cur.u<s.u){ store[k]={c:s.c,i:s.i,u:s.u,d:s.x?null:s.d}; diff=true; } });
       save(); changed(); failed=false; oldServer=false; lastOk=Date.now();
       if(diff){ mergeShifts(); refreshAfter(); }
     }catch(e){ failed=true; if(e&&e.code==="bad_op") oldServer=true; }
