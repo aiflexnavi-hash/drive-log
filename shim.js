@@ -22,10 +22,11 @@ window.NO_CHAT=true;   // 雑談の相談はアプリに入れない
   if(TESTER&&!DEV){ DEV=(Date.now().toString(36)+Math.random().toString(36).slice(2,12)).replace(/[^a-z0-9]/g,"").slice(0,24); LS.set("dev",DEV); }
   window.APP_DEV=DEV;
   const API=CFG?"https://script.google.com/macros/s/"+CFG.u+"/exec":null;
-  async function call(body){
+  async function call(body,ms){
     if(!API) throw {code:"no_cfg"};
     const auth=TESTER?{tester:TESTER.tester,dev:DEV,ua:navigator.userAgent}:{token:CFG.k};
-    const r=await fetch(API,{method:"POST",body:JSON.stringify({...auth,...body})});
+    const ac=ms&&typeof AbortController==="function"?new AbortController():null, tm=ac?setTimeout(()=>ac.abort(),ms):0;
+    let r; try{ r=await fetch(API,{method:"POST",body:JSON.stringify({...auth,...body}),signal:ac?ac.signal:undefined}); }catch(e){ throw {code:ac&&ac.signal.aborted?"timeout":"net"}; } finally{ clearTimeout(tm); }
     const j=await r.json(); if(!j.ok) throw {code:j.error||"error"}; return j;
   }
 
@@ -179,7 +180,7 @@ window.NO_CHAT=true;   // 雑談の相談はアプリに入れない
       c.width=Math.round(src.width*k); c.height=Math.round(src.height*k); c.getContext("2d").drawImage(src,0,0,c.width,c.height);
       return {b:c.toDataURL("image/jpeg",0.85).split(",")[1],w:c.width,h:c.height}; }
     window.OCR={ web:true, async read(file){ const s=await shrink(file);
-      let j; try{ j=await call({op:"ocr",image:{t:"image/jpeg",b:s.b},w:s.w,h:s.h}); }
+      let j; try{ j=await call({op:"ocr",image:{t:"image/jpeg",b:s.b},w:s.w,h:s.h},120000); }
       catch(e){ throw new Error(e&&e.code==="limit"?"今日の読み取りの上限に達しました。明日また使えます":"読み取れませんでした（電波を確認してください）"); }
       const lines=(j.lines||[]).map(l=>({text:String(l.text||""),x:+l.x||0,y:+l.y||0,w:+l.w||0,h:+l.h||0}));
       return {text:lines.map(l=>l.text).join("\n"),lines}; } }; }
