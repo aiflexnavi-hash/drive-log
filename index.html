@@ -1514,7 +1514,7 @@ function nipMask(L){ const T=l=>l.text!=null?l.text:l.t, hit=L.filter(l=>NIP_PII
         const below=l.y>h.y&&l.y-h.y<hh*3.5&&l.x<h.x+h.w*1.5&&l.x+l.w>h.x-h.w*0.5;
         const right=Math.abs(cy-(h.y+hh/2))<hh*0.7&&l.x>h.x+h.w*0.8&&l.x-(h.x+h.w)<h.w*4;
         return below||right; })&&!NIP_LAB.test(t)&&!/\d{4}\s*[\/年.-]\s*\d{1,2}|\d{1,2}\s*[:：]\s*\d{2}/.test(t)) t=star(t);
-    t=t.replace(/([ァ-ヶー]+\s*)?[^\s|]*\d+\s*号\s*車/g,m=>star(m));
+    t=t.replace(/([ァ-ヶー]+\s*)?[^\s|]*\d+\s*号(\s*車)?/g,m=>star(m)).replace(/(ID|ＩＤ)(\s*[:：]?\s*)(\d{4,})/g,(m,a,b,c)=>a+b+star(c));
     return {...l,text:t,t}; }); }
 async function nipAskLayout(L,o){ const ask=S.layout; if(!ask||!L.length||!L.every(l=>l.h>0)) return false;
   const P=L.filter(l=>l.pg===0); let r=null; try{ r=await ask(nipMask(P).map(l=>({t:l.t,x:l.x,y:l.y,w:l.w}))); }catch(e){ return false; } if(!r||typeof r!=="object") return false;
