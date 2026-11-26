@@ -2098,7 +2098,8 @@ function watchShift(){
     const apply=()=>{ document.body.classList.toggle("hideyen",!show); $("yenTip").textContent= show ? "金額を出しています（数字を長押しでぼかしに戻す）" : "金額はぼかしています。数字を押すと5秒だけ見えます（長押しでずっと表示）"; };
     let t=null, lp=null;
     $("goal").addEventListener("click",e=>{ if(show||e.target.closest("button")) return; document.body.classList.remove("hideyen"); clearTimeout(t); t=setTimeout(()=>{ if(!show) document.body.classList.add("hideyen"); },5000); });
-    ["vHome","vCal","log"].forEach(id=>$(id).addEventListener("click",e=>{ if(show||!e.target.closest(".yv,.yen")) return; document.body.classList.remove("hideyen"); clearTimeout(t); t=setTimeout(()=>{ if(!show) document.body.classList.add("hideyen"); },5000); }));
+    // ぼかした金額はどの画面でも押せば5秒見える（入庫の納金チェックなども。パールさん 11/26）
+    document.addEventListener("click",e=>{ if(show||!e.target.closest||!e.target.closest(".yv,.yen")) return; document.body.classList.remove("hideyen"); clearTimeout(t); t=setTimeout(()=>{ if(!show) document.body.classList.add("hideyen"); },5000); });
     $("stats").addEventListener("click",()=>{ if(show) return; document.body.classList.remove("hideyen"); clearTimeout(t); t=setTimeout(()=>{ if(!show) document.body.classList.add("hideyen"); },5000); });
     $("stats").addEventListener("pointerdown",()=>{ lp=setTimeout(()=>{ show=!show; try{ localStorage.setItem("showYen",show?"1":"0"); }catch(e){} apply(); try{ navigator.vibrate&&navigator.vibrate(40); }catch(e){} },800); });
     ["pointerup","pointerleave","pointercancel"].forEach(ev=>$("stats").addEventListener(ev,()=>clearTimeout(lp)));
