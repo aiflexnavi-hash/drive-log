@@ -10,9 +10,13 @@ window.NO_CHAT=true;   // 雑談の相談はアプリに入れない
 
   /* 設定：リンクの #u=<デプロイID>&k=<合言葉> */
   /* テスター版（Android アプリ）：保存先はアプリに入っている（window.APP_CFG）。記録は端末ごとに分けて送る */
-  const TESTER=window.APP_CFG&&window.APP_CFG.tester?window.APP_CFG:null;
+  let TESTER=window.APP_CFG&&window.APP_CFG.tester?window.APP_CFG:null;
   const h=new URLSearchParams(location.hash.slice(1));
   if(!TESTER&&h.get("u")&&h.get("k")){ LS.set("cfg",{u:h.get("u"),k:h.get("k")}); history.replaceState(null,"",location.pathname); }
+  // ブラウザ版（iPhone など）も、合言葉のリンクで開いた人（開発者本人）以外は Android のテスト版と同じ扱いにする：
+  // 同意をもらってから、記録を端末ごとに保存先（テスター用のシート）へ送る（パールさん 11/26「入力データも全部みんなびの学習データに」）
+  if(!TESTER&&!LS.get("cfg",null)){ TESTER={tester:"tst-7Qm2vK9pXw4Lr8Hc",u:"AKfycbwCQvUCE1vGedrebIZwiyA5_GYfYSF0BBOIwmLGUSibILubmZz4eSUV1qfO0fdcRXdi",surveyFrom:"2026-12-06",web:true,ver:"web"}; window.APP_CFG=TESTER;
+    try{ document.write('<script src="app/tester.js"><\/script>'); }catch(e){} }
   const CFG=TESTER?(TESTER.u?{u:TESTER.u}:null):LS.get("cfg",null);
   let DEV=LS.get("dev",null);
   if(TESTER&&!DEV){ DEV=(Date.now().toString(36)+Math.random().toString(36).slice(2,12)).replace(/[^a-z0-9]/g,"").slice(0,24); LS.set("dev",DEV); }

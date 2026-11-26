@@ -26,17 +26,17 @@ window.TesterUI=(function(){
     b.append(el("h2",{textContent:"テスト版のご利用にあたって"}),
       el("p",{textContent:"このアプリはテスト版です。使う前に、次の内容をご確認ください。"}),
       (()=>{ const u=el("ul"); [
-        "乗車・降車・待機などの時刻と位置、走った道、入力した金額は、開発者に送られます。アプリの改善と、個人が分からない形の統計に使います。",
+        "乗車・降車・待機などの時刻と位置、走った道、入力した金額、読み込んだ日報の内容（日付・営収・乗車ごとの時刻・場所・金額）は、開発者に送られます。アプリの改善、個人が分からない形の統計、地図・案内サービス「みんなび」の開発（AI の学習を含む）に使います。",
         "お名前・車番は集めません。所属の会社名・営業所を入れると、営業区域が表示され、同じ会社の人の設定も簡単になります。会社や地域ごとの統計にも使います（ほかの利用者に会社名と記録を結びつけて見せることはしません）。",
         "位置情報を送りたくないときは、スマホの設定でこのアプリの位置情報の許可を外してください。時刻と金額の記録はそのまま使えます。",
         "メモ欄などに、お客様の情報（名前・電話・行き先の住所）は書かないでください。",
         "勤務先の決まりで、記録をアプリに残すことや外部に送ることが禁止されている場合は、使わないでください。",
         "運転中は操作しないでください。停車中に操作してください。",
-        "テスト終了後に記録の削除を希望される場合は、クラウドワークスのメッセージでテスターIDを添えてお知らせください。"
+        "記録の削除を希望される場合は、テスターIDを添えてお知らせください（クラウドワークスのテスターの方はそのメッセージで）。"
       ].forEach(t=>u.append(el("li",{textContent:t}))); return u; })(),
       el("p",{textContent:"あなたのテスターID："+shortId(ctx.DEV)}));
     const ok=el("button",{textContent:"同意して始める"});
-    ok.onclick=()=>{ LS.set("consent",{v:2,at:Date.now()}); try{ ctx.write("consent",ctx.DEV,{v:2,at:Date.now(),app:C.ver||""}); }catch(e){} o.remove(); done&&done(); };
+    ok.onclick=()=>{ LS.set("consent",{v:3,at:Date.now()}); try{ ctx.write("consent",ctx.DEV,{v:3,at:Date.now(),app:C.ver||""}); }catch(e){} o.remove(); done&&done(); };
     b.append(ok);
   }
 
@@ -97,7 +97,7 @@ window.TesterUI=(function(){
       if(due&&!done) bar.style.borderColor="#ffb300";
     };
     draw(); wrap.prepend(bar);
-    { const cs=LS.get("consent",null); if(!cs||(cs.v||1)<2) consent(ctx); }
+    { const cs=LS.get("consent",null); if(!cs||(cs.v||1)<3) consent(ctx); }
   }
   return {mount};
 })();
