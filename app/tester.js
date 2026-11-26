@@ -20,11 +20,14 @@ window.TesterUI=(function(){
   function el(t,a,...k){ const e=document.createElement(t); Object.assign(e,a||{}); k.forEach(x=>e.append(x)); return e; }
   function overlay(){ const o=el("div",{className:"tq"}); const b=el("div",{className:"bx"}); o.append(b); document.body.append(o); return [o,b]; }
   const shortId=d=>String(d||"").slice(-6).toUpperCase();
+  // ブラウザのお試し版（一般の人）は「テスト版」と言わない。クラウドワークスのテスターは自分で切り替えるとアンケートが出る
+  const isCW=()=>!C.web||!!LS.get("cw",false);
+  const idLab=()=>isCW()?"テスターID":"利用ID";
 
   function consent(ctx,done){
     const [o,b]=overlay();
-    b.append(el("h2",{textContent:"テスト版のご利用にあたって"}),
-      el("p",{textContent:"このアプリはテスト版です。使う前に、次の内容をご確認ください。"}),
+    b.append(el("h2",{textContent:isCW()?"テスト版のご利用にあたって":"ご利用にあたって"}),
+      el("p",{textContent:isCW()?"このアプリはテスト版です。使う前に、次の内容をご確認ください。":"このアプリは無料のお試し版です。使う前に、次の内容をご確認ください。"}),
       (()=>{ const u=el("ul"); [
         "乗車・降車・待機などの時刻と位置、走った道、入力した金額、読み込んだ日報の内容（日付・営収・乗車ごとの時刻・場所・金額）は、開発者に送られます。アプリの改善、個人が分からない形の統計、地図・案内サービス「みんなび」の開発（AI の学習を含む）に使います。",
         "お名前・車番は集めません。所属の会社名・営業所を入れると、営業区域が表示され、同じ会社の人の設定も簡単になります。会社や地域ごとの統計にも使います（ほかの利用者に会社名と記録を結びつけて見せることはしません）。",
@@ -32,9 +35,9 @@ window.TesterUI=(function(){
         "メモ欄などに、お客様の情報（名前・電話・行き先の住所）は書かないでください。",
         "勤務先の決まりで、記録をアプリに残すことや外部に送ることが禁止されている場合は、使わないでください。",
         "運転中は操作しないでください。停車中に操作してください。",
-        "記録の削除を希望される場合は、テスターIDを添えてお知らせください（クラウドワークスのテスターの方はそのメッセージで）。"
+        isCW()?"記録の削除を希望される場合は、テスターIDを添えてお知らせください（クラウドワークスのテスターの方はそのメッセージで）。":"記録の削除を希望される場合は、利用IDを添えて minnavi.net のお問い合わせからお知らせください。"
       ].forEach(t=>u.append(el("li",{textContent:t}))); return u; })(),
-      el("p",{textContent:"あなたのテスターID："+shortId(ctx.DEV)}));
+      el("p",{textContent:"あなたの"+idLab()+"："+shortId(ctx.DEV)}));
     const ok=el("button",{textContent:"同意して始める"});
     ok.onclick=()=>{ LS.set("consent",{v:3,at:Date.now()}); try{ ctx.write("consent",ctx.DEV,{v:3,at:Date.now(),app:C.ver||""}); }catch(e){} o.remove(); done&&done(); };
     b.append(ok);
@@ -89,6 +92,9 @@ window.TesterUI=(function(){
     const draw=()=>{
       bar.textContent="";
       const done=!!LS.get("survey",null), due=new Date().toISOString().slice(0,10)>=SURVEY_FROM;
+      if(!isCW()){ bar.append(el("div",{textContent:"お試し版　利用ID："+shortId(ctx.DEV)}));
+        const cw=el("a",{href:"#",textContent:"クラウドワークスのテスターの方はこちら"}); cw.style.cssText="display:block;margin-top:6px;font-size:15px;color:inherit;opacity:.7";
+        cw.onclick=e=>{ e.preventDefault(); LS.set("cw",true); draw(); }; bar.append(cw); bar.style.borderColor="#556"; return; }
       bar.append(el("div",{textContent:"テスト版　テスターID："+shortId(ctx.DEV)}));
       if(done) bar.append(el("small",{textContent:"アンケートは送信済みです（直して送り直すこともできます）"}));
       else bar.append(el("small",{textContent:due?"テスト終了アンケートをお願いします（約10分）":"テストの最後にアンケートをお願いします（"+SURVEY_FROM.slice(5).replace("-","/")+" から）"}));
