@@ -1463,6 +1463,7 @@ function toMin(t){ const m=/^(\d{1,2}):(\d{2})/.exec(String(t||"")); return m? N
 /* ===== 日報の写真をスマホの中で読む（アプリ版。写真も文字も外に送らない） =====
    読んだ数字は確かめてから保存する。拾えなかった所は手で入れる。 */
 function nipLines(rs){ const L=[]; rs.forEach((r,pg)=>{ const ls=r&&r.lines&&r.lines.length?r.lines:String((r&&r.text)||"").split("\n").map(t=>({text:t})); ls.forEach(l=>{ const t=rcNorm(l.text); if(t.trim()) L.push({...l,t,pg}); }); }); return L; }
+function nipYenFix(t){ return String(t).replace(/(\d)\s*[.．]\s*(\d{3})(?![\d.])/g,"$1$2"); }
 function nipNum(t){ const m=String(t).replace(/(\d)\s*[,，]\s*(?=\d{3})/g,"$1").match(/-?\d+(?:\.\d+)?/); return m?Number(m[0]):null; }
 function nipTime(t){ const m=String(t).match(/(\d{1,2})\s*[:：時]\s*(\d{2})/); if(!m) return null; const h=Number(m[1]),mi=Number(m[2]); return h<48&&mi<60?String(h%24).padStart(2,"0")+":"+String(mi).padStart(2,"0"):null; }
 // ラベルの行から値をさがす：同じ行の後ろ → 同じ高さで右にある行 → 次の行
@@ -1473,7 +1474,7 @@ function nipFind(L,re,get,bad){ const hasBox=L.length&&L.every(l=>l.h>0);
     else { const n=L[i+1]; if(n&&!/[ぁ-んァ-ヶ一-龠]{2}/.test(n.t)){ v=get(n.t); if(v!=null) return v; } } }
   return null; }
 // 日報の「位置おぼえ」：パールさんが直して保存した値が、写真のどこにあったかを覚える。次からはその位置を読む（スマホの中だけ、AIなし）
-const NIP_GET={ total:t=>{ const v=nipNum(t); return v!=null&&v>=500&&v<1000000?Math.round(v):null; }, count:t=>{ const v=nipNum(t); return v!=null&&v>=1&&v<=99&&Number.isInteger(v)?v:null; },
+const NIP_GET={ total:t=>{ const v=nipNum(nipYenFix(t)); return v!=null&&v>=500&&v<1000000?Math.round(v):null; }, count:t=>{ const v=nipNum(t); return v!=null&&v>=1&&v<=99&&Number.isInteger(v)?v:null; },
   start:t=>nipTime(t), end:t=>nipTime(t), km:t=>{ const v=nipNum(t); return v!=null&&v>=1&&v<1500?v:null; }, hired_rate:t=>{ const v=nipNum(t); return v!=null&&v>0&&v<=100?v:null; } };
 function nipLabels(L){ const c={}; L.forEach(l=>{ if(l.pg===0&&l.h>0&&/[ぁ-んァ-ヶ一-龠]{2}/.test(l.t)&&l.t.length<=12) (c[l.t.replace(/\s/g,"")]=c[l.t.replace(/\s/g,"")]||[]).push(l); }); const o={}; Object.keys(c).forEach(k=>{ if(c[k].length===1){ const l=c[k][0]; o[k]=[l.x+l.w/2,l.y+l.h/2]; } }); return o; }
 function nipFit(a,b){ const n=a.length; if(n<3) return null; let sa=0,sb=0,saa=0,sab=0; for(let i=0;i<n;i++){ sa+=a[i]; sb+=b[i]; saa+=a[i]*a[i]; sab+=a[i]*b[i]; } const d=n*saa-sa*sa; if(Math.abs(d)<1e-6) return null; const k=(n*sab-sa*sb)/d; return k>0.3&&k<3?[k,(sb-k*sa)/n]:null; }
@@ -1520,9 +1521,9 @@ function nipRides(L,fareX){ const TM=/^\s*(\d{1,2})\s*[:：]\s*(\d{2})\s*$/, PL=
   const out=[]; while(byN[out.length+1]) out.push(byN[out.length+1]);
   return out.length>=1?out.map(r=>({on:r.on,off:r.off,from:r.from,to:r.to,fare:r.fare,pay:r.cash!=null?(r.cash>=r.fare?"現金":""):""})):[]; }
 function nippoParse(rs){ const L=nipLines(rs), all=L.map(l=>l.t).join("\n"), o={};
-  const yen=t=>{ const v=nipNum(t); return v!=null&&v>=500&&v<1000000?Math.round(v):null; };
+  const yen=t=>{ const v=nipNum(nipYenFix(t)); return v!=null&&v>=500&&v<1000000?Math.round(v):null; };
   o.total=nipFind(L,/(総?営業?収入?|営\s*収|運\s*収|運賃\s*(合計|収入)?|売上\s*(合計)?|税込\s*合計|水揚げ?)(?!\s*(回|率|km))(\s*合\s*計)?/,yen,/(税抜|回数|1回|平均|単価|km|率)/);
-  { const ns=[]; L.forEach(l=>{ (l.t.replace(/(\d)\s*[,，]\s*(?=\d{3})/g,"$1").match(/\d+/g)||[]).forEach(x=>{ const v=Number(x); if(v>=400&&v<=99990&&v%10===0) ns.push(v); }); }); o.nums=ns.slice(0,300); }
+  { const ns=[]; L.forEach(l=>{ (nipYenFix(l.t).replace(/(\d)\s*[,，]\s*(?=\d{3})/g,"$1").match(/\d+/g)||[]).forEach(x=>{ const v=Number(x); if(v>=400&&v<=99990&&v%10===0) ns.push(v); }); }); o.nums=ns.slice(0,300); }
   if(o.total==null) o.total=nipFind(L,/^\s*(総\s*)?合\s*計(?!\s*(回|点|km))/,yen,/回数/);
   o.count=nipFind(L,/(乗車|営業|実車|輸送)?\s*回\s*数|乗車人?数|営業回/,t=>{ const v=nipNum(t); return v!=null&&v>=1&&v<=99&&Number.isInteger(v)?v:null; },/(迎車|配車|メーター)/);
   // 出庫・入庫は「2026/11/22 23:10」のような日付つきの時刻を優先（ラベルと数字が別の行でも読める）
@@ -1632,7 +1633,9 @@ function nipCheck(w,doc,appRides,appSum,row){
   miss.forEach(e=>{ const j=pool.findIndex(c=>near(e.amount,c)); let t=hhmm(e.at)+"　"+fmtYen(e.amount)+"円"; if(j>=0){ t+=" → 日報では "+fmtYen(pool[j])+"円 かも"; pool.splice(j,1); } notFound.push(t); });
   const list=(title,arr,note)=>{ if(!arr.length) return; w.append(mk("h4",null,title+"（"+arr.length+"）")); const ul=document.createElement("ul"); arr.forEach(t=>ul.append(mk("li",null,t))); w.append(ul); if(note) w.append(mk("p","font-size:16px",note,"note")); };
   list("金額が入っていない乗車",noAmt,"履歴から金額を入れてください。");
-  if(doc.nums&&doc.nums.length) list("日報に見当たらない金額",notFound,"入力ミスかもしれません。日報で同じ時刻の乗車を確かめて、違っていれば履歴から直してください（読み取りの見落としのこともあります）。");
+  const allOk=appSum===tot&&(cnt==null||appRides.length===cnt);
+  if(allOk&&!noAmt.length){ w.append(mk("p","font-size:20px","記録と日報はぴったり合っています。","ok")); return; }
+  if(!allOk&&doc.nums&&doc.nums.length) list("日報に見当たらない金額",notFound,"入力ミスかもしれません。日報で同じ時刻の乗車を確かめて、違っていれば履歴から直してください（読み取りの見落としのこともあります）。");
   const d=tot-appSum, dc=cnt!=null?cnt-appRides.length:0;
   if(d===0&&dc===0&&!notFound.length&&!noAmt.length) w.append(mk("p","font-size:20px","記録と日報の合計・回数がぴったり合っています。","ok"));
   else { const m=[]; if(dc>0) m.push("日報の方が "+dc+" 回多い → 乗車の押し忘れがあるかもしれません"); if(dc<0) m.push("アプリの方が "+(-dc)+" 回多い → 押し間違い・二重の記録かもしれません"); if(d) m.push("営収の差 "+(d>0?"+":"")+fmtYen(d)+"円（日報−アプリ）");
