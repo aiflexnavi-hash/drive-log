@@ -1433,6 +1433,7 @@ async function nipShowSaved(id){
     nipShow(doc,evs);
     if(evs.some(e=>e.type==="dropoff")) out.append(nokinBox(evs));
     if(doc.comment){ const b=document.createElement("div"); b.className="msg ai"; b.style.marginTop="14px"; b.textContent=doc.comment; addAgain(b,doc.comment); out.append(b); }
+    { const LL=nipLastGet(); if(LL&&LL.length&&doc.verified==="photo-device") out.append(nipDumpBtn(LL)); }
   }catch(e){ const p=document.createElement("p"); p.className="err"; p.textContent="読み込めませんでした（"+(e&&e.code||"不明")+"）。"; out.append(p); }
 }
 function nipRender(){
@@ -1546,10 +1547,15 @@ function nippoParse(rs){ const L=nipLines(rs), all=L.map(l=>l.t).join("\n"), o={
   nipTplApply(L,o); o.rides=nipRides(L,o.fareX); if(o.count==null&&o.rides.length>=2) o.count=o.rides.length;
   Object.defineProperty(o,"_L",{value:L,enumerable:false});
   return o; }
+function nipDumpBtn(L){ const dbg=btn("読み取った文字をファイルに保存（作る人に送る用）","ghost",async()=>{ const j=JSON.stringify({v:1,at:new Date().toISOString(),lines:L.map(l=>({t:l.text!=null?l.text:l.t,x:l.x,y:l.y,w:l.w,h:l.h,pg:l.pg}))});
+      try{ if(S.dl) await S.dl.save({filename:"nippo-ocr-"+ymd(new Date())+".json",data:new Blob([j],{type:"application/json"})}); else { const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([j],{type:"application/json"})); a.download="nippo-ocr.json"; document.body.append(a); a.click(); a.remove(); } toast("✓ 保存しました"); }catch(e){ toast("保存できませんでした",false); } });
+  dbg.dataset.free="1"; dbg.style.fontSize="15px"; dbg.style.marginTop="10px"; return dbg; }
+function nipLastSet(L){ try{ localStorage.setItem("nipLastOcr",JSON.stringify(L.map(l=>({text:l.text!=null?l.text:l.t,t:l.t,x:l.x,y:l.y,w:l.w,h:l.h,pg:l.pg})))); }catch(e){} }
+function nipLastGet(){ try{ return JSON.parse(localStorage.getItem("nipLastOcr")||"null"); }catch(e){ return null; } }
 async function nipOcr(files){
   if(N.busy||!files||!files.length) return;
   const out=$("nipOut"); N.busy=true; $("nipBtn").disabled=true; out.replaceChildren(mk("p","font-size:20px","読み取り中…","note"));
-  let o={}; try{ const rs=[]; for(const f of Array.from(files).slice(0,4)) rs.push(await window.OCR.read(f)); o=nippoParse(rs);
+  let o={}; try{ const rs=[]; for(const f of Array.from(files).slice(0,4)) rs.push(await window.OCR.read(f)); o=nippoParse(rs); if(o._L) nipLastSet(o._L);
     if(!o.tplHit&&S.layout&&o._L&&o._L.length>=5&&o._L.every(l=>l.h>0)){ out.replaceChildren(mk("p","font-size:20px","初めての形の日報なので、形を覚えています…（初回だけ）","note")); const L0=o._L; await nipAskLayout(L0,o); Object.defineProperty(o,"_L",{value:L0,enumerable:false}); } }catch(e){ o=o&&o._L?o:{}; }
   N.busy=false; $("nipBtn").disabled=false; $("nipFile").value="";
   nipConfirm(o); }
@@ -1580,9 +1586,7 @@ function nipConfirm(o){ const out=$("nipOut"); out.replaceChildren();
       toast(lrn?"✓ 日報を保存しました（数字の場所を覚えました）":"✓ 日報を保存しました"); V.dataAt=0; G.monthFor=null; nipRender(); nipShowSaved(id); }
     catch(e){ err.textContent="保存できませんでした。もう一度押してください"; } });
   ok.dataset.free="1"; const cc=btn("やめる","ghost",()=>{ out.replaceChildren(); }); cc.dataset.free="1";
-  if(o._L&&o._L.length){ const dbg=btn("読み取った文字をファイルに保存（作る人に送る用）","ghost",async()=>{ const j=JSON.stringify({v:1,at:new Date().toISOString(),lines:o._L.map(l=>({t:l.text!=null?l.text:l.t,x:l.x,y:l.y,w:l.w,h:l.h,pg:l.pg}))});
-      try{ if(S.dl) await S.dl.save({filename:"nippo-ocr-"+ymd(new Date())+".json",data:new Blob([j],{type:"application/json"})}); else { const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([j],{type:"application/json"})); a.download="nippo-ocr.json"; document.body.append(a); a.click(); a.remove(); } toast("✓ 保存しました"); }catch(e){ toast("保存できませんでした",false); } });
-    dbg.dataset.free="1"; dbg.style.fontSize="15px"; setTimeout(()=>{ if(cc.parentNode) cc.after(dbg); },0); }
+  if(o._L&&o._L.length){ const dbg=nipDumpBtn(o._L); setTimeout(()=>{ if(cc.parentNode) cc.after(dbg); },0); }
   w.append(err,ok,cc,mk("div","font-size:15px","写真は保存しません。保存すると、今月度の累計・足切りまでの残り・歩合の見込みに入ります。","note")); out.append(w); }
 async function nipRead(files){
   if(N.busy||!files||!files.length) return;
