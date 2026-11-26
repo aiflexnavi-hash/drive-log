@@ -233,6 +233,25 @@ window.NO_CHAT=true;   // 雑談の相談はアプリに入れない
         const bf=document.createElement("input"); bf.type="file"; bf.accept=".json,application/json"; bf.style.fontSize="17px";
         bf.addEventListener("change",()=>{ if(bf.files[0]) importFile(bf.files[0]); bf.value=""; });
         bk.append(bs,bp,sv,bl,bf); wrap.append(bk); }
+      // 別の端末で同じ記録を使う：この端末の「引き継ぎコード」を別の端末に入れると、同じ保存先を使う（登録・パスワードなし）
+      if(API&&(!TESTER||DEV)){ const hk=document.createElement("details"); hk.style.cssText="margin-top:8px;font-size:17px";
+        const hs=document.createElement("summary"); hs.textContent="別の端末で同じ記録を使う（引き継ぎコード）"; hs.style.cssText="min-height:44px;display:flex;align-items:center;cursor:pointer;color:var(--muted)";
+        const fmt=c=>String(c).match(/.{1,4}/g).join("-");
+        const hp=document.createElement("p"); hp.className="note"; hp.style.fontSize="17px"; hp.textContent="この端末の引き継ぎコードです。機種変更したときや、スマホとパソコンの両方で使うときは、もう一方の端末でこのコードを入れてください。記録と日報がそちらにも出ます（走った道の線は、記録した端末だけです）。このコードを知っている人はあなたの記録を見られるので、人に教えないでください。";
+        const hc=document.createElement("div"); hc.textContent=DEV?fmt(DEV):""; hc.style.cssText="font-size:20px;font-weight:700;letter-spacing:.04em;word-break:break-all;margin:6px 0;user-select:all";
+        const cp=document.createElement("button"); cp.type="button"; cp.className="ghost"; cp.textContent="コードをコピー"; cp.style.cssText="width:100%;min-height:48px;font-size:17px";
+        cp.addEventListener("click",async()=>{ try{ await navigator.clipboard.writeText(fmt(DEV)); cp.textContent="✓ コピーしました"; }catch(e){ cp.textContent="長押しで選んでコピーしてください"; } setTimeout(()=>cp.textContent="コードをコピー",3000); });
+        const hl=document.createElement("div"); hl.className="note"; hl.style.cssText="font-size:16px;margin-top:12px"; hl.textContent="ほかの端末のコードを入れる（この端末の記録も、そちらにまとめます）：";
+        const hi=document.createElement("input"); hi.type="text"; hi.autocapitalize="off"; hi.autocomplete="off"; hi.spellcheck=false; hi.placeholder="xxxx-xxxx-xxxx-…"; hi.style.cssText="width:100%;box-sizing:border-box;font-size:18px;padding:8px;margin:4px 0;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px";
+        const he=document.createElement("div"); he.style.cssText="font-size:16px;color:var(--warn,#ffb74d)";
+        const go=document.createElement("button"); go.type="button"; go.textContent="このコードの記録をこの端末で使う"; go.style.cssText="width:100%;min-height:52px;font-size:17px";
+        let armed=false;
+        go.addEventListener("click",()=>{ const c=hi.value.toLowerCase().replace(/[^a-z0-9]/g,"");
+          if(!/^[a-z0-9]{8,32}$/.test(c)){ he.textContent="コードが正しくありません。もう一度確かめてください。"; return; }
+          if(c===DEV){ he.textContent="この端末のコードです。もう一方の端末のコードを入れてください。"; return; }
+          if(!armed){ armed=true; he.textContent="この端末の記録も、そのコードの記録にまとめます。よければもう一度押してください。"; go.textContent="まとめて使う（もう一度押す）"; return; }
+          LS.set("devPrev",DEV); LS.set("dev",c); if(!TESTER) LS.set("cfg",null); queue=Object.keys(store); save(); location.reload(); });
+        if(TESTER) hk.append(hs,hp,hc,cp,hl,hi,go,he); else hk.append(hs,hl,hi,go,he); wrap.append(hk); }
       if(TESTER&&window.TesterUI) window.TesterUI.mount(wrap,{write,store,DEV});
       // リンクだけで開いた人：記録はこのスマホ（ブラウザ）の中だけに保存して使ってもらう
       if(!API&&!TESTER&&!LS.get("localOk",false)){ const w=document.createElement("div"); w.className="note"; w.style.cssText="font-size:17px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:10px";
