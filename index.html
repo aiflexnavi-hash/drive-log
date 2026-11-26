@@ -1634,6 +1634,15 @@ async function nipOcr(files){
   N.busy=false; $("nipBtn").disabled=false; $("nipFile").value="";
   list.sort((a,b)=>(a.date||"")<(b.date||"")?-1:1);
   nipConfirm(list[0],list.slice(1)); }
+// 明細の合計が営収と合わないとき、読み違えやすい数字（1と7など）かアプリの記録の金額に1か所だけ置き換えてぴったり合うなら、そこを直す
+const NIP_DIGALT={"1":"74","7":"1","3":"8","8":"3609","6":"85","5":"6","0":"869","9":"08","4":"1"};
+function nipDigitAlt(v){ const s=String(v), out=new Set(); for(let i=0;i<s.length;i++){ (NIP_DIGALT[s[i]]||"").split("").forEach(c=>{ const t=s.slice(0,i)+c+s.slice(i+1); const n=Number(t); if(!/^0/.test(t)&&n>0&&n%10===0) out.add(n); }); } return [...out]; }
+function nipFareFix(o,hits){ if(o._fareFixed||!o.rides||!o.rides.length) return; Object.defineProperty(o,"_fareFixed",{value:1,enumerable:false});
+  const tv=Number(o.total)||0; if(!tv||o.totalFromRides) return; const sum=o.rides.reduce((a,x)=>a+(Number(x.fare)||0),0), D=tv-sum; if(!D) return;
+  const cands=[]; o.rides.forEach((x,i)=>{ const v=Number(x.fare)||0, h=hits&&hits[i]; if(h&&h.amount&&h.amount-v===D) cands.push({i,nv:h.amount,why:"app"}); if(v) nipDigitAlt(v).forEach(nv=>{ if(nv-v===D) cands.push({i,nv,why:"digit"}); }); });
+  const appC=cands.filter(c=>c.why==="app"), rides=new Set(cands.map(c=>c.i)); let pick=null;
+  if(appC.length===1) pick=appC[0]; else if(!appC.length&&rides.size===1) pick=cands[0];
+  if(pick){ const x=o.rides[pick.i]; x.ocrFare=x.fare; x.fare=pick.nv; x.fixWhy=pick.why; } }
 function nipConfirm(o,rest){ rest=rest||[]; const out=$("nipOut"); out.replaceChildren(); const nx=()=>{ if(rest.length){ nipConfirm(rest[0],rest.slice(1)); return true; } return false; };
   const sh=N.shifts.find(x=>x.id===N.pick); const sd=sh?ymd(new Date(sh.start)):null;
   const got=["total","count","start","end","km","hired_rate"].filter(k=>o[k]!=null).length;
@@ -1647,15 +1656,17 @@ function nipConfirm(o,rest){ rest=rest||[]; const out=$("nipOut"); out.replaceCh
     if(sh2){ try{ app=(await S.db.collection("events").where("shift","==",sh2.id).orderBy("at").get()).docs.map(q=>({id:q.id,...q.data()})).filter(e=>e.type==="dropoff"); }catch(e){} }
     const used=new Set();
     const hd=mk("div","font-size:18px;font-weight:700","乗車 "+o.rides.length+" 件"+(sh2?"（アプリの記録と比べています）":"（この日のアプリの記録はありません）")); rideBox.append(hd);
-    o.rides.forEach((x,i)=>{ const t=toMin(x.off)??toMin(x.on); let best=null,bd=1e9; app.forEach(e=>{ if(used.has(e.id)) return; const m=new Date(e.at); let a=m.getHours()*60+m.getMinutes(); let dd=Math.abs(a-(t??a)); dd=Math.min(dd,1440-dd); if(dd<bd){ bd=dd; best=e; } });
-      const hit=best&&bd<=10?best:null; if(hit) used.add(hit.id);
+    const hits=o.rides.map(x=>{ const t=toMin(x.off)??toMin(x.on); let best=null,bd=1e9; app.forEach(e=>{ if(used.has(e.id)) return; const m=new Date(e.at); let a=m.getHours()*60+m.getMinutes(); let dd=Math.abs(a-(t??a)); dd=Math.min(dd,1440-dd); if(dd<bd){ bd=dd; best=e; } });
+      const hit=best&&bd<=10?best:null; if(hit) used.add(hit.id); return hit; });
+    nipFareFix(o,hits);
+    o.rides.forEach((x,i)=>{ const hit=hits[i];
       const r=mk("div","display:grid;grid-template-columns:2.2em 1fr 6.5em;gap:6px;align-items:center;font-size:16px;border-bottom:1px solid var(--line);padding:4px 0");
       const mark=mk("div","font-size:20px;font-weight:700;text-align:center"); const info=mk("div",null,(i+1)+". "+x.on+(x.off?"〜"+x.off:"")+" "+(x.from||"")+(x.to?"→"+x.to:"")+(x.feeIn?"（"+x.app+"・車内決済の手配料 "+x.appFee+"円を引いた額）":x.app?"（"+x.app+"）":""));
       const inp=document.createElement("input"); inp.type="number"; inp.inputMode="numeric"; inp.value=x.fare||""; inp.style.cssText="font-size:18px;padding:6px;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;min-width:0;width:100%;box-sizing:border-box";
-      const note=mk("div","grid-column:2 / 4;font-size:15px");
+      const note=mk("div","grid-column:2 / 4;font-size:15px"); const fixN=x.ocrFare!=null?mk("div","grid-column:2 / 4;font-size:15px;color:var(--warn,#ffb74d)","読み取りは "+fmtYen(x.ocrFare)+"円でしたが、"+(x.fixWhy==="app"?"アプリの記録と":"")+"合計が日報の営収と合うように "+fmtYen(x.fare)+"円に直しました。紙と同じか確かめてください"):null;
       const upd=()=>{ const v=Number(inp.value)||0; x.fare=v; if(!sh2){ mark.textContent=""; note.textContent=""; } else if(!hit){ mark.textContent="＋"; mark.style.color="var(--warn,#ffb74d)"; note.textContent="アプリに無い乗車（保存すると足します）"; }
         else if((hit.amount||0)!==v){ mark.textContent="⚠"; mark.style.color="var(--warn,#ffb74d)"; note.textContent="アプリでは "+fmtYen(hit.amount||0)+"円"+(hit.amount?(x.app&&hit.amount>v&&hit.amount-v<=1000?"（差の "+fmtYen(hit.amount-v)+"円は "+x.app+" の手配料かもしれません。営収には入りません）":""):"（未入力）"); } else { mark.textContent="✓"; mark.style.color="var(--ok,#4caf50)"; note.textContent=""; } sumUpd(); };
-      inp.addEventListener("input",upd); fareIn.push(upd); r.append(mark,info,inp,note); rideBox.append(r); });
+      inp.addEventListener("input",upd); fareIn.push(upd); r.append(mark,info,inp,note); if(fixN) r.append(fixN); rideBox.append(r); });
     const extra=app.filter(e=>!used.has(e.id)); if(extra.length){ rideBox.append(mk("div","font-size:16px;margin-top:4px","日報に無いアプリの乗車："+extra.map(e=>hhmm(e.at)+" "+fmtYen(e.amount||0)+"円").join("、"),"err")); }
     rideBox.append(sumLine); fareIn.forEach(f=>f()); };
   const sumUpd=()=>{ const sum=(o.rides||[]).reduce((a,x)=>a+(Number(x.fare)||0),0); const tv=Number(String(tot&&tot.value||"").replace(/[^0-9]/g,""))||0;
