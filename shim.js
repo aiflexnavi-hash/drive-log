@@ -62,7 +62,7 @@ window.NO_CHAT=true;   // 雑談の相談はアプリに入れない
     try{
       const j=await call({op:"pull"});
       if(!!j.layout!==LS.get("layoutOn",false)) LS.set("layoutOn",!!j.layout);
-      if(!!j.ocr!==LS.get("ocrOn",false)){ LS.set("ocrOn",!!j.ocr); if(j.ocr) webOcr(); }
+      if(!!j.ocr!==LS.get("ocrOn",false)){ LS.set("ocrOn",!!j.ocr); if(j.ocr){ webOcr(); try{ window.dispatchEvent(new Event("ocr-ready")); }catch(e){} } }
       if(!!j.ai!==aiOn){ aiOn=!!j.ai; LS.set("aiOn",aiOn); if(aiOn) setTimeout(()=>location.reload(),300); }
       const seen=new Set();
       let diff=false;
