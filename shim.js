@@ -62,6 +62,7 @@ window.NO_CHAT=true;   // 雑談の相談はアプリに入れない
     try{
       const j=await call({op:"pull"});
       if(!!j.layout!==LS.get("layoutOn",false)) LS.set("layoutOn",!!j.layout);
+      if(!!j.ocr!==LS.get("ocrOn",false)){ LS.set("ocrOn",!!j.ocr); if(j.ocr) webOcr(); }
       if(!!j.ai!==aiOn){ aiOn=!!j.ai; LS.set("aiOn",aiOn); if(aiOn) setTimeout(()=>location.reload(),300); }
       const seen=new Set();
       let diff=false;
@@ -163,6 +164,22 @@ window.NO_CHAT=true;   // 雑談の相談はアプリに入れない
       const txt= a>=0&&(a2<0||a<a2) ? t.slice(a,z+1) : (a2>=0?t.slice(a2,z2+1):t); try{ return JSON.parse(txt); }catch(e){ throw {code:"bad_json",text:t}; } },
     limits:async()=>({images:{maxCount:4,mediaTypes:["image/jpeg","image/png","image/webp"]}})
   });
+
+  /* ブラウザ版の写真の文字読み取り（日報・レシート・売上一覧のスクショ）。Android アプリはスマホの中で読む（ocr.js が上書きする）。
+     ブラウザではスマホの中で正しく読めないので、縮めた写真を保存先経由で AI（Gemini）に読んでもらう。返す形は Android と同じ */
+  function webOcr(){ if(window.OCR||!API||!LS.get("ocrOn",false)) return;
+    async function shrink(file){ let src;
+      try{ src=await createImageBitmap(file,{imageOrientation:"from-image"}); }
+      catch(e){ src=await new Promise((ok,ng)=>{ const im=new Image(); im.onload=()=>ok(im); im.onerror=ng; im.src=URL.createObjectURL(file); }); }
+      const k=Math.min(1,2000/Math.max(src.width,src.height)), c=document.createElement("canvas");
+      c.width=Math.round(src.width*k); c.height=Math.round(src.height*k); c.getContext("2d").drawImage(src,0,0,c.width,c.height);
+      return {b:c.toDataURL("image/jpeg",0.85).split(",")[1],w:c.width,h:c.height}; }
+    window.OCR={ web:true, async read(file){ const s=await shrink(file);
+      let j; try{ j=await call({op:"ocr",image:{t:"image/jpeg",b:s.b},w:s.w,h:s.h}); }
+      catch(e){ throw new Error(e&&e.code==="limit"?"今日の読み取りの上限に達しました。明日また使えます":"読み取れませんでした（電波を確認してください）"); }
+      const lines=(j.lines||[]).map(l=>({text:String(l.text||""),x:+l.x||0,y:+l.y||0,w:+l.w||0,h:+l.h||0}));
+      return {text:lines.map(l=>l.text).join("\n"),lines}; } }; }
+  webOcr();
 
   window.claude={ use:async name=>{
     if(name==="sample") return API&&aiOn?sample:null;
