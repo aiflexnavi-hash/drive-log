@@ -1747,12 +1747,12 @@ function nipShow(doc,evs){
   if(doc.total!=null && doc.total!==repSum) msg.push("日報の合計欄 "+fmtYen(doc.total)+"円 と、行の足し算 "+fmtYen(repSum)+"円 が合いません。読み取りミスかもしれないので、写真で確かめてください。");
   if(doc.unclear) msg.push("読み取りの自信がない所："+doc.unclear);
   // ride matching: by drop time (±10分) then fare
-  const used=new Set(); const miss=[]; const diff=[]; const fixAmt=[], fixAdd=[];
+  const used=new Set(); const miss=[]; const diff=[]; const fixAmt=[], fixAdd=[], pairs=[];
   doc.rides.forEach(x=>{
     const t=toMin(x.off)??toMin(x.on);
     let best=null,bd=1e9;
     appRides.forEach(e=>{ if(used.has(e.id)) return; const m=new Date(e.at); let a=m.getHours()*60+m.getMinutes(); let d=Math.abs(a-(t??a)); d=Math.min(d,1440-d); if(d<bd){bd=d;best=e;} });
-    if(best && bd<=10){ used.add(best.id); if((best.amount||0)!==x.fare&&x.fare>0){ diff.push(hhmm(best.at)+"　アプリ "+fmtYen(best.amount||0)+"円 → 日報 "+fmtYen(x.fare)+"円"); fixAmt.push({id:best.id,fare:x.fare}); } }
+    if(best && bd<=10){ used.add(best.id); pairs.push({x,e:best}); if((best.amount||0)!==x.fare&&x.fare>0){ diff.push(hhmm(best.at)+"　アプリ "+fmtYen(best.amount||0)+"円 → 日報 "+fmtYen(x.fare)+"円"); fixAmt.push({id:best.id,fare:x.fare}); } }
     else if((fixAdd.push(x),true)) miss.push((x.on||"?")+"〜"+(x.off||"?")+"　"+(x.from||"")+"→"+(x.to||"")+"　"+fmtYen(x.fare)+"円");
   });
   const extra=appRides.filter(e=>!used.has(e.id)).map(e=>hhmm(e.at)+"　"+fmtYen(e.amount||0)+"円");
@@ -1767,13 +1767,33 @@ function nipShow(doc,evs){
   const drop=full?appRides.filter(e=>!used.has(e.id)):[];
   if(!full&&doc.rides.length&&(fixAmt.length||fixAdd.length)) msg.push("明細の読み取りが合計と合わないので、アプリの記録は自動では直していません。日報を明るい所で撮り直すと直ります。");
   N.synced=N.synced||{};
-  if(sh&&full&&(fixAmt.length||fixAdd.length||drop.length)&&!N.synced[sh.id]){ N.synced[sh.id]=1;
+  // 乗車・降車の時刻と場所も日報に合わせる（降りてから乗車と降車を続けて押した日など。パールさん 11/26）。
+  // 時刻が2分より違えば日報の時刻に、場所は日報の住所に。位置（緯度経度）は走った跡から日報の時刻の点を使う
+  const fixPos=[];
+  if(sh){ const t0=sh.start, b0=new Date(t0); b0.setHours(0,0,0,0);
+    const at=hm=>{ const m=toMin(hm); if(m==null) return null; let t=b0.getTime()+m*60000; if(t<t0-3*3600000) t+=86400000; return t; };
+    pairs.forEach(({x,e})=>{ const pk=evs.filter(z=>z.type==="pickup"&&z.at<=e.at).pop(); const prevOff=pk&&evs.some(z=>z.type==="dropoff"&&z.at>pk.at&&z.at<e.at);
+      const tOn=at(x.on); let tOff=at(x.off); if(tOn&&tOff&&tOff<tOn) tOff+=86400000;
+      const one=(ev,t,pl)=>{ if(!ev) return null; const u={}; if(t&&Math.abs(ev.at-t)>120000) u.at=t; if(pl&&ev.place!==pl) u.place=pl; return Object.keys(u).length?{ev,u}:null; };
+      const a=pk&&!prevOff?one(pk,tOn,x.from||null):null, b=one(e,tOff,x.to||null);
+      if(a||b) fixPos.push({a,b,x}); }); }
+  if(sh&&full&&(fixAmt.length||fixAdd.length||drop.length||fixPos.length)&&!N.synced[sh.id]){ N.synced[sh.id]=1;
     (async()=>{ const t0=sh.start, base0=new Date(t0); base0.setHours(0,0,0,0); const log=[];
       const at=hm=>{ const m=toMin(hm); if(m==null) return null; let t=base0.getTime()+m*60000; if(t<t0-3*3600000) t+=86400000; return t; };
       try{ for(const f of fixAmt){ const e=appRides.find(z=>z.id===f.id); await S.db.collection("events").doc(f.id).update({amount:f.fare,appAmount:e&&e.amount!=null?e.amount:null,fixedBy:"nippo"}); log.push(hhmm(e.at)+" 金額 "+fmtYen(e.amount||0)+"→"+fmtYen(f.fare)+"円"); }
         for(const x of fixAdd){ const a=at(x.on)||at(x.off); if(!a) continue; let b=at(x.off)||a+60000; if(b<a) b+=86400000; const base={ind:"taxi",shift:sh.id,lat:null,lng:null,acc:null,src:"nippo"};
           await S.db.collection("events").add({...base,type:"pickup",at:a,kind:null,place:x.from||null}); await S.db.collection("events").add({...base,type:"dropoff",at:Math.max(b,a+60000),amount:x.fare||null,place:x.to||null}); log.push((x.on||"")+" 押し忘れを追加 "+fmtYen(x.fare)+"円"); }
         for(const e of drop){ await S.db.collection("events").doc(e.id).update({type:"dropoff_void",voidBy:"nippo"}); const pk=evs.filter(z=>z.type==="pickup"&&z.at<=e.at).pop(); if(pk&&!evs.some(z=>z.type==="dropoff"&&z.at>pk.at&&z.at<e.at)) await S.db.collection("events").doc(pk.id).update({type:"pickup_void",voidBy:"nippo"}); log.push(hhmm(e.at)+" 日報に無いので取り消し "+fmtYen(e.amount||0)+"円"); }
+        if(fixPos.length){ let pts=[]; try{ (await S.db.collection("tracks").where("shift","==",sh.id).get()).docs.forEach(d=>{ (d.data().pts||[]).forEach(q=>pts.push(q)); }); }catch(x){}
+          const near=t=>{ let bp=null,bd=180001; pts.forEach(q=>{ const d=Math.abs(q[0]-t); if(d<bd){bd=d;bp=q;} }); return bp; };
+          let nPl=0;
+          for(const f of fixPos){ const moved=[];
+            for(const [k,fx] of [["乗車",f.a],["降車",f.b]]){ if(!fx) continue; const u={...fx.u,fixedBy:"nippo"};
+              if(u.at){ u.appAt=fx.ev.at; const q=near(u.at); u.appLat=fx.ev.lat??null; u.appLng=fx.ev.lng??null; u.lat=q?q[1]:null; u.lng=q?q[2]:null; u.acc=null; u.loc=q?"走行の跡":null; moved.push(k+" "+hhmm(fx.ev.at)+"→"+hhmm(u.at)); }
+              if(u.place) u.appPlace=fx.ev.place??null;
+              await S.db.collection("events").doc(fx.ev.id).update(u); if(!u.at&&u.place) nPl++; }
+            if(moved.length) log.push((f.x.on||"")+" 時刻を日報に（"+moved.join("・")+"）"); }
+          if(nPl) log.push("場所を日報の住所にそろえました（"+nPl+"か所）"); }
         try{ await S.db.collection("reports").doc(sh.id).update({syncLog:log,syncAt:Date.now()}); }catch(x){}
         toast("✓ アプリの記録を日報に合わせました（"+log.length+"件）"); V.dataAt=0; G.monthFor=null; nipShowSaved(sh.id); }
       catch(e){ N.synced[sh.id]=0; showErr("日報に合わせられませんでした。もう一度開いてください。"); } })(); }
