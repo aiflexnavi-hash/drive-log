@@ -1513,7 +1513,7 @@ function nipMask(L){ const T=l=>l.text!=null?l.text:l.t, hit=L.filter(l=>NIP_PII
     else if(hit.some(h=>{ if(h.pg!==l.pg) return false; const hh=h.h||20, cy=l.y+(l.h||0)/2;
         const below=l.y>h.y&&l.y-h.y<hh*3.5&&l.x<h.x+h.w*1.5&&l.x+l.w>h.x-h.w*0.5;
         const right=Math.abs(cy-(h.y+hh/2))<hh*0.7&&l.x>h.x+h.w*0.8&&l.x-(h.x+h.w)<h.w*4;
-        return below||right; })&&!NIP_LAB.test(t)) t=star(t);
+        return below||right; })&&!NIP_LAB.test(t)&&!/\d{4}\s*[\/年.-]\s*\d{1,2}|\d{1,2}\s*[:：]\s*\d{2}/.test(t)) t=star(t);
     t=t.replace(/([ァ-ヶー]+\s*)?[^\s|]*\d+\s*号\s*車/g,m=>star(m));
     return {...l,text:t,t}; }); }
 async function nipAskLayout(L,o){ const ask=S.layout; if(!ask||!L.length||!L.every(l=>l.h>0)) return false;
@@ -1541,18 +1541,23 @@ function nipRides(L,fareX){ const PL=/[一-龠ぁ-んァ-ヶ]{2,}/, TMg=/(\d{2})
     const tl=P.filter(l=>l.x+l.w*0.3<leftMax&&/\d{1,2}\s*[:：]\s*\d{2}/.test(l.t)&&!/[年\/]/.test(l.t));
     if(tl.length){
       // 傾きを探す：金額や場所が、時刻の行と同じ高さにそろう傾き
-      let best=0,bs=-1; for(let k=-24;k<=24;k++){ const sl=k*0.0025; let sc=0; P.forEach(o=>{ if(tl.includes(o)) return; if(!(nipYenIn(o.t)||(PL.test(o.t)&&ADR.test(o.t)))) return; for(const a of tl){ if(o.x>a.x+a.w*0.5&&Math.abs(cy(o)-sl*(o.x-a.x)-cy(a))<a.h*0.45){ sc++; break; } } }); if(sc>bs||(sc===bs&&Math.abs(sl)<Math.abs(best))){ bs=sc; best=sl; } }
+      let best=0,bs=-1; for(let k=-24;k<=24;k++){ const sl=k*0.0025; let sc=0; P.forEach(o=>{ if(tl.includes(o)) return; if(!(PL.test(o.t)&&ADR.test(o.t))) return; /* 傾きは場所（住所）で合わせる。金額の列は半行ずれることがあるので使わない */ for(const a of tl){ if(o.x>a.x+a.w*0.5&&Math.abs(cy(o)-sl*(o.x-a.x)-cy(a))<a.h*0.45){ sc++; break; } } }); if(sc>bs||(sc===bs&&Math.abs(sl)<Math.abs(best))){ bs=sc; best=sl; } }
       const x0=Math.min(...tl.map(l=>l.x)); const yAt=o=>cy(o)-best*(o.x-x0);
       // 左側の時刻の行を、同じ高さどうしでまとめる（番号と時刻が分かれて読まれることがある）
       const left=P.filter(l=>l.x+l.w*0.3<leftMax&&(tl.includes(l)||/^\s*[|I1l]?\s*\(?\d{1,2}\)?\s*$/.test(l.t)||rest(l.t)&&l.t.length<=4)).sort((p,q)=>yAt(p)-yAt(q));
       const grp=[]; left.forEach(l=>{ const g=grp.find(g=>Math.abs(g.y-yAt(l))<Math.max(g.h,l.h)*0.55); if(g){ g.ls.push(l); } else grp.push({y:yAt(l),h:l.h,ls:[l]}); });
       const others=P.filter(o=>!left.includes(o));
+      // 金額の列は、時刻の行から半行ずれて印刷・読み取りされることがある。ずれを探して、金額だけそのぶん動かして行に合わせる
+      const gy=grp.map(g=>g.y).sort((p,q)=>p-q), dif=gy.slice(1).map((v,i)=>v-gy[i]).filter(v=>v>4).sort((p,q)=>p-q); const pitch=dif.length?dif[Math.floor(dif.length/2)]:20;
+      const yen=others.filter(o=>o.x>leftMax&&nipYenIn(o.t)!=null);
+      let sh=0,shs=-1; for(let k=-20;k<=20;k++){ const d=k*pitch*0.05; let sc=0; grp.forEach(g=>{ if(yen.some(o=>Math.abs(yAt(o)-d-g.y)<pitch*0.25)) sc++; }); if(sc>shs||(sc===shs&&Math.abs(d)<Math.abs(sh))){ shs=sc; sh=d; } }
+      const bandOf=(g,arr)=>arr.filter(o=>{ const y=yAt(o)-sh, d=Math.abs(y-g.y); return d<pitch*0.45&&!grp.some(h=>h!==g&&Math.abs(y-h.y)<d); });
       grp.forEach(g=>{ g.ls.sort((p,q)=>p.x-q.x); const txt=g.ls.map(l=>l.t).join(" "); const tm=times(txt); if(!tm.length) return; const pre=txt.slice(0,txt.search(/\d{1,2}\s*[:：]\s*\d{2}/)); if(rest(pre)) return;
         const own=others.filter(o=>Math.abs(yAt(o)-g.y)<Math.max(g.h,12)*0.7&&!grp.some(h=>h!==g&&Math.abs(yAt(o)-h.y)<Math.abs(yAt(o)-g.y))).sort((p,q)=>p.x-q.x);
-        const ys=own.map(o=>({v:nipYenIn(o.t),x:o.x+o.w/2})).filter(o=>o.v!=null); if(!ys.length) return;
+        const ys=(Math.abs(sh)>pitch*0.15?bandOf(g,yen):own).map(o=>({v:nipYenIn(o.t),x:o.x+o.w/2})).filter(o=>o.v!=null); if(!ys.length) return;
         if(fareX!=null) ys.sort((p,q)=>Math.abs(p.x-fareX)-Math.abs(q.x-fareX)); else ys.sort((p,q)=>p.x-q.x);
         const pl=own.filter(o=>PL.test(o.t)&&!/\d{3,}/.test(o.t)&&o.x<ys[0].x).map(o=>String(o.t).replace(/[|!】\[\]\sTＴ]/g,"").replace(/^[^一-龠ぁ-んァ-ヶ]+/,"").replace(/^ハ(?=[一-龠])/,"八").replace(/(?<=[一-龠])ハ(?=[一-龠])/g,"八"));
-        const rm=own.filter(o=>o.x>ys[0].x+40&&!nipYenIn(o.t)).map(o=>String(o.t)).join(" ")+" "+own.filter(o=>o.x>ys[0].x+40&&nipYenIn(o.t)).map(o=>String(o.t).replace(/[\d,.\s]/g,"")).join(" ");
+        const rgt=Math.abs(sh)>pitch*0.15?bandOf(g,others.filter(o=>o.x>leftMax)):own; const rm=rgt.filter(o=>o.x>ys[0].x+40&&!nipYenIn(o.t)).map(o=>String(o.t)).join(" ")+" "+rgt.filter(o=>o.x>ys[0].x+40&&nipYenIn(o.t)).map(o=>String(o.t).replace(/[\d,.\s]/g,"")).join(" ");
         rows.push({y:g.y,on:tm[0],off:tm[1]||"",from:pl[0]||"",to:pl[1]||"",fare:ys[0].v,app:nipAppMark(rm)}); });
       rows.sort((p,q)=>p.y-q.y); } }
   else L.forEach(l=>{ const c=clean(l.t); const tm=times(c); if(!tm.length) return; const pre=c.slice(0,c.search(/\d{1,2}\s*[:：]\s*\d{2}/)); if(rest(pre)||!/\d/.test(pre)) return;
@@ -1594,10 +1599,13 @@ function nippoParse(rs){ const L=nipLines(rs), all=L.map(l=>l.t).join("\n"), o={
     let n=0; while(seen.has(n+1)) n++; if(n>=2) o.listCount=n; }
   if(o.listCount) o.count=o.listCount;
   o.km=nipFind(L,/(総\s*)?走\s*行(距離|キロ|km)?(?!\s*(実|空))/,t=>{ const v=nipNum(t); return v!=null&&v>=1&&v<1500?v:null; },/(実車|空車)/);
-  o.hired_rate=nipFind(L,/実\s*車\s*率/,t=>{ const v=nipNum(t); return v!=null&&v>0&&v<=100?v:null; });
+  o.hired_rate=nipFind(L,/実\s*車\s*率|実\s*乗\s*車(?!\s*[地時])/,t=>{ const v=nipNum(t); return v!=null&&v>0&&v<=100?v:null; });
   let dm=o.date?null:all.match(/(20\d\d)\s*[年\/.-]\s*(\d{1,2})\s*[月\/.-]\s*(\d{1,2})/); if(dm) o.date=dm[1]+"-"+p2(dm[2])+"-"+p2(dm[3]);
   else if(!o.date&&(dm=all.match(/(?:令和|R)\s*(\d{1,2})\s*[年\/.-]\s*(\d{1,2})\s*[月\/.-]\s*(\d{1,2})/))) o.date=(2018+Number(dm[1]))+"-"+p2(dm[2])+"-"+p2(dm[3]);
-  nipTplApply(L,o); o.rides=nipRides(L,o.fareX); nipFeeFix(o); if(o.rides.length>=2&&(o.count==null||o.rides.length>o.count)) o.count=o.rides.length;
+  nipTplApply(L,o); o.rides=nipRides(L,o.fareX);
+  // 総営収が読めず、明細が乗車回数どおり全部読めたときは、明細の合計を営収にする（確認画面で知らせる）
+  if(o.total==null&&o.rides.length>=2&&o.count===o.rides.length&&o.rides.every(x=>x.fare>0)){ o.total=o.rides.reduce((a,x)=>a+x.fare,0); o.totalFromRides=true; }
+  nipFeeFix(o); if(o.rides.length>=2&&(o.count==null||o.rides.length>o.count)) o.count=o.rides.length;
   Object.defineProperty(o,"_L",{value:L,enumerable:false});
   return o; }
 function nipDumpBtn(L){ const dbg=btn("読み取った文字をファイルに保存（作る人に送る用）","ghost",async()=>{ const j=JSON.stringify({v:1,at:new Date().toISOString(),lines:L.map(l=>({t:l.text!=null?l.text:l.t,x:l.x,y:l.y,w:l.w,h:l.h,pg:l.pg}))});
@@ -1650,6 +1658,7 @@ function nipConfirm(o){ const out=$("nipOut"); out.replaceChildren();
   const tot=row("営収（税込）","number",o.total,"例 52000"), cnt=row("乗車回数","number",o.count,"例 25");
   const st=row("出庫","time",o.start), en=row("入庫","time",o.end), km=row("走行km","number",o.km), hr=row("実車率（%）","number",o.hired_rate);
   const err=mk("div","font-size:16px",null,"err");
+  if(o.totalFromRides) w.append(mk("div","font-size:16px;color:var(--warn,#ffb74d)","営収の欄が読めなかったので、乗車の合計を入れました。日報の総営収と同じか確かめてください。"));
   tot.addEventListener("input",sumUpd); dt.addEventListener("change",()=>{ o.date=dt.value; drawRides(); }); drawRides();
   const ok=btn("この内容で保存する","vacant",async()=>{
     const num=x=>{ const v=Number(String(x.value).replace(/[^0-9.]/g,"")); return v>0?v:null; };
