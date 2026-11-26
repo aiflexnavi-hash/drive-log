@@ -1619,11 +1619,22 @@ function nipLastGet(){ try{ return JSON.parse(localStorage.getItem("nipLastOcr")
 async function nipOcr(files){
   if(N.busy||!files||!files.length) return;
   const out=$("nipOut"); N.busy=true; $("nipBtn").disabled=true; out.replaceChildren(mk("p","font-size:20px","読み取り中…","note"));
-  let o={}; try{ const rs=[]; for(const f of Array.from(files).slice(0,4)) rs.push(await window.OCR.read(f)); o=nippoParse(rs); if(o._L) nipLastSet(o._L);
-    if(!o.tplHit&&S.layout&&o._L&&o._L.length>=5&&o._L.every(l=>l.h>0)){ out.replaceChildren(mk("p","font-size:20px","初めての形の日報なので、形を覚えています…（初回だけ）","note")); const L0=o._L; await nipAskLayout(L0,o); Object.defineProperty(o,"_L",{value:L0,enumerable:false}); } }catch(e){ o=o&&o._L?o:{}; }
+  // 写真を1枚ずつ読む。別の日の日報が何枚か選ばれたときは1枚ずつ別の日報として確かめる（同じ日の続きのページなら1つにまとめる）
+  const fs=Array.from(files).slice(0,4), rs=[]; let bad=0;
+  for(let i=0;i<fs.length;i++){ if(fs.length>1) out.replaceChildren(mk("p","font-size:20px","読み取り中…（"+(i+1)+"／"+fs.length+" 枚目）","note")); try{ rs.push(await window.OCR.read(fs[i])); }catch(e){ bad++; } }
+  let groups=rs.length?[rs]:[];
+  if(rs.length>1){ const ps=rs.map(r=>{ try{ return nippoParse([r]); }catch(e){ return {}; } });
+    if(ps.every(p=>p.date&&(p.total!=null||(p.rides&&p.rides.length)))&&new Set(ps.map(p=>p.date)).size===ps.length) groups=rs.map(r=>[r]); }
+  const list=[];
+  for(const g of groups){ let o={}; try{ o=nippoParse(g); if(o._L) nipLastSet(o._L);
+      if(!o.tplHit&&S.layout&&o._L&&o._L.length>=5&&o._L.every(l=>l.h>0)){ out.replaceChildren(mk("p","font-size:20px","初めての形の日報なので、形を覚えています…（初回だけ）","note")); const L0=o._L; await nipAskLayout(L0,o); Object.defineProperty(o,"_L",{value:L0,enumerable:false}); } }catch(e){ o=o&&o._L?o:{}; }
+    list.push(o); }
+  if(!list.length) list.push({});
+  if(bad) list[0].badPhotos=bad;
   N.busy=false; $("nipBtn").disabled=false; $("nipFile").value="";
-  nipConfirm(o); }
-function nipConfirm(o){ const out=$("nipOut"); out.replaceChildren();
+  list.sort((a,b)=>(a.date||"")<(b.date||"")?-1:1);
+  nipConfirm(list[0],list.slice(1)); }
+function nipConfirm(o,rest){ rest=rest||[]; const out=$("nipOut"); out.replaceChildren(); const nx=()=>{ if(rest.length){ nipConfirm(rest[0],rest.slice(1)); return true; } return false; };
   const sh=N.shifts.find(x=>x.id===N.pick); const sd=sh?ymd(new Date(sh.start)):null;
   const got=["total","count","start","end","km","hired_rate"].filter(k=>o[k]!=null).length;
   const w=mk("div","display:flex;flex-direction:column;gap:8px"); w.className="sheet";
@@ -1650,6 +1661,8 @@ function nipConfirm(o){ const out=$("nipOut"); out.replaceChildren();
   const sumUpd=()=>{ const sum=(o.rides||[]).reduce((a,x)=>a+(Number(x.fare)||0),0); const tv=Number(String(tot&&tot.value||"").replace(/[^0-9]/g,""))||0;
     if(!tv||sum===tv){ sumLine.textContent="乗車の合計 "+fmtYen(sum)+"円"+(tv?"（日報の営収と合っています ✓）":""); sumLine.style.color="var(--ok,#4caf50)"; }
     else { sumLine.textContent="乗車の合計 "+fmtYen(sum)+"円（日報の営収 "+fmtYen(tv)+"円と "+fmtYen(Math.abs(sum-tv))+"円違います。紙と比べて違う金額を直してください）"; sumLine.style.color="var(--warn,#ffb74d)"; } };
+  if(o.badPhotos) w.append(mk("div","font-size:16px;color:var(--warn,#ffb74d)",o.badPhotos+" 枚の写真が読めませんでした。その日報はもう一度読み込んでください。"));
+  if(rest.length) w.append(mk("div","font-size:17px;font-weight:700","別の日の日報があと "+rest.length+" 枚あります。これを保存すると（やめても）次の日報に進みます。"));
   if(o.aiUsed) w.append(mk("div","font-size:16px","この日報の形を覚えました。次からはこの形をすぐ読みます","note"));
   else if(o.fromTpl) w.append(mk("div","font-size:16px","覚えた日報の形で読みました","note"));
   else if(got&&o._L&&o._L.length&&o._L.every(l=>l.h>0)) w.append(mk("div","font-size:16px","違うところを直して保存すると、その場所も覚えます","note"));
@@ -1669,9 +1682,9 @@ function nipConfirm(o){ const out=$("nipOut"); out.replaceChildren();
     try{ const ref=S.db.collection("reports").doc(id); const old=await ref.get(); const x=old.exists?old.data():{}; await ref.set({...x,...doc,rides:doc.rides.length?doc.rides:(x.rides||[]),rests:x.rests||[]});
       N.pick=id; if(N.have) N.have.add(id); try{ const rs=await S.db.collection("reports").get(); N.past=rs.docs.filter(q=>q.id.startsWith("past-")).map(q=>({id:q.id,...q.data()})).sort((p,q)=>p.date<q.date?1:-1); }catch(e){}
       const lrn=nipTplLearn(o._L,{total:doc.total,count:doc.count,start:doc.start,end:doc.end,km:doc.km,hired_rate:doc.hired_rate});
-      toast(lrn?"✓ 日報を保存しました（数字の場所を覚えました）":"✓ 日報を保存しました"); V.dataAt=0; G.monthFor=null; nipRender(); nipShowSaved(id); }
+      toast(lrn?"✓ 日報を保存しました（数字の場所を覚えました）":"✓ 日報を保存しました"); V.dataAt=0; G.monthFor=null; if(nx()) return; nipRender(); nipShowSaved(id); }
     catch(e){ err.textContent="保存できませんでした。もう一度押してください"; } });
-  ok.dataset.free="1"; const cc=btn("やめる","ghost",()=>{ out.replaceChildren(); }); cc.dataset.free="1";
+  ok.dataset.free="1"; const cc=btn(rest.length?"この日報はやめて次へ":"やめる","ghost",()=>{ if(!nx()) out.replaceChildren(); }); cc.dataset.free="1";
   if(o._L&&o._L.length){ const dbg=nipDumpBtn(o._L); setTimeout(()=>{ if(cc.parentNode) cc.after(dbg); },0); }
   w.append(err,ok,cc,mk("div","font-size:15px","写真は保存しません。保存すると、今月度の累計・足切りまでの残り・歩合の見込みに入ります。","note")); out.append(w); }
 async function nipRead(files){
