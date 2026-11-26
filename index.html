@@ -1534,12 +1534,16 @@ function nipRides(L,fareX){ const PL=/[一-龠ぁ-んァ-ヶ]{2,}/, TMg=/(\d{2})
         const ys=own.map(o=>({v:nipYenIn(o.t),x:o.x+o.w/2})).filter(o=>o.v!=null); if(!ys.length) return;
         if(fareX!=null) ys.sort((p,q)=>Math.abs(p.x-fareX)-Math.abs(q.x-fareX)); else ys.sort((p,q)=>p.x-q.x);
         const pl=own.filter(o=>PL.test(o.t)&&!/\d{3,}/.test(o.t)&&o.x<ys[0].x).map(o=>String(o.t).replace(/[|!】\[\]\sTＴ]/g,"").replace(/^[^一-龠ぁ-んァ-ヶ]+/,"").replace(/^ハ(?=[一-龠])/,"八").replace(/(?<=[一-龠])ハ(?=[一-龠])/g,"八"));
-        rows.push({y:g.y,on:tm[0],off:tm[1]||"",from:pl[0]||"",to:pl[1]||"",fare:ys[0].v}); });
+        const rm=own.filter(o=>o.x>ys[0].x+40&&!nipYenIn(o.t)).map(o=>String(o.t)).join(" ")+" "+own.filter(o=>o.x>ys[0].x+40&&nipYenIn(o.t)).map(o=>String(o.t).replace(/[\d,.\s]/g,"")).join(" ");
+        rows.push({y:g.y,on:tm[0],off:tm[1]||"",from:pl[0]||"",to:pl[1]||"",fare:ys[0].v,app:nipAppMark(rm)}); });
       rows.sort((p,q)=>p.y-q.y); } }
   else L.forEach(l=>{ const c=clean(l.t); const tm=times(c); if(!tm.length) return; const pre=c.slice(0,c.search(/\d{1,2}\s*[:：]\s*\d{2}/)); if(rest(pre)||!/\d/.test(pre)) return;
     const after=c.replace(/^.*?\d{2}\s*[:：]\s*\d{2}(\s+\d{2}\s*[:：]\s*\d{2})?/,"").trim().split(/\s+/); const pl=after.filter(t=>PL.test(t)); const ys=after.map(nipYenIn).filter(v=>v!=null); if(!ys.length) return;
-    rows.push({on:tm[0],off:tm[1]||"",from:pl[0]||"",to:pl[1]||"",fare:ys[0]}); });
-  return rows.map(r=>({on:r.on,off:r.off,from:r.from,to:r.to,fare:r.fare,pay:""})); }
+    rows.push({on:tm[0],off:tm[1]||"",from:pl[0]||"",to:pl[1]||"",fare:ys[0],app:nipAppMark(after.filter(t=>!nipYenIn(t)&&!PL.test(t)).join(" "))}); });
+  // 合計金額には配車アプリの手配料（お客様負担・営収に入らない）が入っている：GO 200円、Uber 100円（パールさん 11/26）
+  return rows.map(r=>{ const fee=r.app?NIP_APPFEE[r.app]||0:0; const o={on:r.on,off:r.off,from:r.from,to:r.to,fare:Math.max(0,r.fare-fee),pay:""}; if(r.app){ o.app=r.app; o.appFee=fee; o.paperFare=r.fare; } return o; }); }
+const NIP_APPFEE={GO:200,Uber:100};
+function nipAppMark(t){ const c=String(t||"").replace(/[0-9０-９,.\s|!】]/g,""); if(/[GＧ]/.test(c)) return "GO"; if(/[UＵ]/.test(c)) return "Uber"; return null; }
 function nippoParse(rs){ const L=nipLines(rs), all=L.map(l=>l.t).join("\n"), o={};
   const yen=t=>{ const v=nipNum(nipYenFix(t)); return v!=null&&v>=500&&v<1000000?Math.round(v):null; };
   o.total=nipFind(L,/(総?営業?収入?|営\s*収|運\s*収|運賃\s*(合計|収入)?|売上\s*(合計)?|税込\s*合計|水揚げ?)(?!\s*(回|率|km))(\s*合\s*計)?/,yen,/(税抜|回数|1回|平均|単価|km|率)/);
@@ -1597,7 +1601,7 @@ function nipConfirm(o){ const out=$("nipOut"); out.replaceChildren();
     o.rides.forEach((x,i)=>{ const t=toMin(x.off)??toMin(x.on); let best=null,bd=1e9; app.forEach(e=>{ if(used.has(e.id)) return; const m=new Date(e.at); let a=m.getHours()*60+m.getMinutes(); let dd=Math.abs(a-(t??a)); dd=Math.min(dd,1440-dd); if(dd<bd){ bd=dd; best=e; } });
       const hit=best&&bd<=10?best:null; if(hit) used.add(hit.id);
       const r=mk("div","display:grid;grid-template-columns:2.2em 1fr 6.5em;gap:6px;align-items:center;font-size:16px;border-bottom:1px solid var(--line);padding:4px 0");
-      const mark=mk("div","font-size:20px;font-weight:700;text-align:center"); const info=mk("div",null,(i+1)+". "+x.on+(x.off?"〜"+x.off:"")+" "+(x.from||"")+(x.to?"→"+x.to:""));
+      const mark=mk("div","font-size:20px;font-weight:700;text-align:center"); const info=mk("div",null,(i+1)+". "+x.on+(x.off?"〜"+x.off:"")+" "+(x.from||"")+(x.to?"→"+x.to:"")+(x.app?"（"+x.app+" 手配料 "+x.appFee+"円を引いた額）":""));
       const inp=document.createElement("input"); inp.type="number"; inp.inputMode="numeric"; inp.value=x.fare||""; inp.style.cssText="font-size:18px;padding:6px;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;min-width:0;width:100%;box-sizing:border-box";
       const note=mk("div","grid-column:2 / 4;font-size:15px");
       const upd=()=>{ const v=Number(inp.value)||0; x.fare=v; if(!sh2){ mark.textContent=""; note.textContent=""; } else if(!hit){ mark.textContent="＋"; mark.style.color="var(--warn,#ffb74d)"; note.textContent="アプリに無い乗車（保存すると足します）"; }
