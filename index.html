@@ -1488,7 +1488,7 @@ function nipTplApply(L,o){ const m=nipTplPick(L); if(!m) return; const {T,fx,fy}
   const P=L.filter(l=>l.pg===0); const H=P.reduce((a,l)=>Math.max(a,l.h),0)||30; let used=0;
   Object.keys(T.f||{}).forEach(k=>{ if(!NIP_GET[k]) return; const [x,y]=T.f[k], ex=fx[0]*x+fx[1], ey=fy[0]*y+fy[1]; let best=null,bd=1e9;
     P.forEach(l=>{ const g=NIP_GET[k](l.t); if(g==null) return; const d=Math.hypot(l.x+l.w/2-ex,(l.y+l.h/2-ey)*2); if(d<bd){ bd=d; best=g; } });
-    if(best!=null&&bd<H*2.5){ o[k]=best; used++; } });
+    if(best!=null&&bd<H*2.5&&o[k]==null){ o[k]=best; used++; } });
   if(T.fareX!=null) o.fareX=fx[0]*T.fareX+fx[1];
   if(used) o.fromTpl=used; }
 function nipTplSave(L,f,fareX){ if(!L||!L.length||!L.every(l=>l.h>0)||!Object.keys(f).length) return 0; const lab=nipLabels(L); const list=nipTpls(); const m=nipTplPick(L);
@@ -1513,31 +1513,33 @@ async function nipAskLayout(L,o){ const ask=S.layout; if(!ask||!L.length||!L.eve
 // 実際の読み取りでは「1 23:38 |23:47 1」のように番号と時刻が1つの行になり、場所や金額は別の行。写真の傾きも直してから同じ行を集める。
 function nipYenIn(t){ const c=String(t).replace(/[|!】\[\]]/g," "); let m=c.match(/(?:^|[^\d.,])(\d{1,3})\s*[,.．，]\s*(\d{3})(?![\d])/); let v=m?Number(m[1]+m[2]):null;
   if(v==null){ m=c.match(/^\s*[¥￥]?\s*(\d{3,6})\s*(円|N|$)/); v=m?Number(m[1]):null; } return v!=null&&v>=400&&v<=300000&&v%10===0?v:null; }
-function nipRides(L,fareX){ const T2=/^\s*\(?(\d{1,2})\)?\s+(\d{1,2})\s*[:：]\s*(\d{2})(?:[^\d]+(\d{1,2})\s*[:：]\s*(\d{2}))?/, PL=/[一-龠ぁ-んァ-ヶ]{2,}/;
-  const clean=t=>String(t).replace(/[|!】\[\]]/g," ").replace(/\s+/g," ").trim();
+function nipRides(L,fareX){ const PL=/[一-龠ぁ-んァ-ヶ]{2,}/, TMg=/(\d{2})\s*[:：]\s*(\d{2})/g, ADR=/[市区町村郡]/;
+  const clean=t=>String(t).replace(/[|!】\[\]\\]/g," ").replace(/\s+/g," ").trim();
+  const times=t=>{ const out=[]; let m; const re=new RegExp(TMg.source,"g"); while((m=re.exec(t))){ const v=nipTime(m[1]+":"+m[2]); if(v) out.push(v); } return out; };
+  const rest=t=>/[休木田入出あ]|\)/.test(t);   // 休憩・出庫・入庫の行の印（読み違い「木」「田」「あ」も）
   let rows=[];
-  if(L.length&&L.every(l=>l.h>0)){ const P=L.filter(l=>l.pg===0);
-    const anc=P.filter(l=>T2.test(clean(l.t))&&!/[休田入出木]/.test(l.t.slice(0,3)));
-    if(anc.length){ const cy=l=>l.y+l.h/2;
-      // 傾きを探す：金額や場所の行が、番号の行と同じ高さにそろう傾きを選ぶ
-      let best=0,bs=-1; for(let k=-24;k<=24;k++){ const sl=k*0.0025; let sc=0; P.forEach(o=>{ if(anc.includes(o)) return; if(!(nipYenIn(o.t)||PL.test(o.t))) return; anc.forEach(a=>{ if(o.x>a.x+a.w*0.5&&Math.abs(cy(o)-sl*(o.x-a.x)-cy(a))<a.h*0.45) sc++; }); }); if(sc>bs||(sc===bs&&Math.abs(sl)<Math.abs(best))){ bs=sc; best=sl; } }
-      const own=new Map(); P.forEach(o=>{ if(anc.includes(o)) return; let ba=null,bd=1e9; anc.forEach(a=>{ if(o.x<=a.x+a.w*0.5) return; const d=Math.abs(cy(o)-best*(o.x-a.x)-cy(a)); if(d<bd){ bd=d; ba=a; } }); if(ba&&bd<Math.max(ba.h,12)*0.7){ if(!own.has(ba)) own.set(ba,[]); own.get(ba).push(o); } });
-      anc.forEach(a=>{ const m=clean(a.t).match(T2); const cells=(own.get(a)||[]).slice().sort((p,q)=>p.x-q.x);
-        const pl=cells.filter(o=>PL.test(o.t)&&!/[0-9]{3,}/.test(o.t)).map(o=>String(o.t).replace(/[|!】\[\]\sTＴ]/g,"").replace(/^[^一-龠ぁ-んァ-ヶ]+/,"").replace(/^ハ(?=[一-龠])/,"八").replace(/(?<=[一-龠])ハ(?=[一-龠])/g,"八"));
-        const ys=cells.map(o=>({v:nipYenIn(o.t),x:o.x+o.w/2})).filter(o=>o.v!=null);
-        let fare=0; if(ys.length){ if(fareX!=null){ ys.sort((p,q)=>Math.abs(p.x-fareX)-Math.abs(q.x-fareX)); } else ys.sort((p,q)=>p.x-q.x); fare=ys[0].v; }
-        rows.push({n:Number(m[1]),on:nipTime(m[2]+":"+m[3])||"",off:m[4]?nipTime(m[4]+":"+m[5])||"":"",from:pl[0]||"",to:pl[1]||"",fare,cash:null}); }); }
-    // 番号だけの行（セルごとに分かれている形）
-    if(!rows.length){ const S2=P.slice().sort((a,b)=>(a.y+a.h/2)-(b.y+b.h/2)); const used=new Set(); const TM=/^\s*(\d{1,2})\s*[:：]\s*(\d{2})\s*$/;
-      S2.forEach(a=>{ if(used.has(a)||!/^\s*\(?\d{1,2}\)?\s*$/.test(a.t)) return; const c0=a.y+a.h/2; const cells=S2.filter(b=>!used.has(b)&&b.x>=a.x-2&&Math.abs(b.y+b.h/2-c0)<Math.max(a.h,b.h)*0.6).sort((p,q)=>p.x-q.x); if(cells[0]!==a) return;
-        const tm=[],pl=[],ys=[]; cells.slice(1).forEach(o=>{ const t=String(o.t).trim(); if(TM.test(t)) tm.push(nipTime(t)); else if(PL.test(t)&&!/^[休出入]$/.test(t)) pl.push(t.replace(/\s/g,"")); else { const v=nipYenIn(t); if(v!=null) ys.push({v,x:o.x+o.w/2}); } });
-        if(!tm.length) return; let fare=0; if(ys.length){ if(fareX!=null) ys.sort((p,q)=>Math.abs(p.x-fareX)-Math.abs(q.x-fareX)); fare=ys[0].v; }
-        cells.forEach(x=>used.add(x)); rows.push({n:Number(a.t.match(/\d+/)[0]),on:tm[0]||"",off:tm[1]||"",from:pl[0]||"",to:pl[1]||"",fare,cash:ys.length>=3?ys[1].v:null}); }); } }
-  else L.forEach(l=>{ const c=clean(l.t), m=c.match(T2); if(!m) return; const rest=c.slice(m[0].length).trim().split(/\s+/); const pl=rest.filter(t=>PL.test(t)); const ys=rest.map(nipYenIn).filter(v=>v!=null);
-    rows.push({n:Number(m[1]),on:nipTime(m[2]+":"+m[3])||"",off:m[4]?nipTime(m[4]+":"+m[5])||"":"",from:pl[0]||"",to:pl[1]||"",fare:ys[0]||0,cash:ys.length>=3?ys[1]:null}); });
-  const sc=r=>(r.fare?2:0)+(r.from?1:0)+(r.to?1:0)+(r.off?1:0); const byN={}; rows.forEach(r=>{ if(!(r.fare||r.from)) return; if(!byN[r.n]||sc(r)>sc(byN[r.n])) byN[r.n]=r; });
-  const out=[]; while(byN[out.length+1]) out.push(byN[out.length+1]);
-  return out.map(r=>({on:r.on,off:r.off,from:r.from,to:r.to,fare:r.fare,pay:r.cash!=null?(r.cash>=r.fare?"現金":""):""})); }
+  if(L.length&&L.every(l=>l.h>0)){ const P=L.filter(l=>l.pg===0); const cy=l=>l.y+l.h/2;
+    const adr=P.filter(l=>PL.test(l.t)&&ADR.test(l.t)&&!/\d{3,}/.test(l.t)); const xs=adr.map(l=>l.x).sort((p,q)=>p-q); const leftMax=xs.length?xs[Math.floor(xs.length*0.1)]-4:1e9;
+    const tl=P.filter(l=>l.x+l.w*0.3<leftMax&&/\d{1,2}\s*[:：]\s*\d{2}/.test(l.t)&&!/[年\/]/.test(l.t));
+    if(tl.length){
+      // 傾きを探す：金額や場所が、時刻の行と同じ高さにそろう傾き
+      let best=0,bs=-1; for(let k=-24;k<=24;k++){ const sl=k*0.0025; let sc=0; P.forEach(o=>{ if(tl.includes(o)) return; if(!(nipYenIn(o.t)||(PL.test(o.t)&&ADR.test(o.t)))) return; for(const a of tl){ if(o.x>a.x+a.w*0.5&&Math.abs(cy(o)-sl*(o.x-a.x)-cy(a))<a.h*0.45){ sc++; break; } } }); if(sc>bs||(sc===bs&&Math.abs(sl)<Math.abs(best))){ bs=sc; best=sl; } }
+      const x0=Math.min(...tl.map(l=>l.x)); const yAt=o=>cy(o)-best*(o.x-x0);
+      // 左側の時刻の行を、同じ高さどうしでまとめる（番号と時刻が分かれて読まれることがある）
+      const left=P.filter(l=>l.x+l.w*0.3<leftMax&&(tl.includes(l)||/^\s*[|I1l]?\s*\(?\d{1,2}\)?\s*$/.test(l.t)||rest(l.t)&&l.t.length<=4)).sort((p,q)=>yAt(p)-yAt(q));
+      const grp=[]; left.forEach(l=>{ const g=grp.find(g=>Math.abs(g.y-yAt(l))<Math.max(g.h,l.h)*0.55); if(g){ g.ls.push(l); } else grp.push({y:yAt(l),h:l.h,ls:[l]}); });
+      const others=P.filter(o=>!left.includes(o));
+      grp.forEach(g=>{ g.ls.sort((p,q)=>p.x-q.x); const txt=g.ls.map(l=>l.t).join(" "); const tm=times(txt); if(!tm.length) return; const pre=txt.slice(0,txt.search(/\d{1,2}\s*[:：]\s*\d{2}/)); if(rest(pre)) return;
+        const own=others.filter(o=>Math.abs(yAt(o)-g.y)<Math.max(g.h,12)*0.7&&!grp.some(h=>h!==g&&Math.abs(yAt(o)-h.y)<Math.abs(yAt(o)-g.y))).sort((p,q)=>p.x-q.x);
+        const ys=own.map(o=>({v:nipYenIn(o.t),x:o.x+o.w/2})).filter(o=>o.v!=null); if(!ys.length) return;
+        if(fareX!=null) ys.sort((p,q)=>Math.abs(p.x-fareX)-Math.abs(q.x-fareX)); else ys.sort((p,q)=>p.x-q.x);
+        const pl=own.filter(o=>PL.test(o.t)&&!/\d{3,}/.test(o.t)&&o.x<ys[0].x).map(o=>String(o.t).replace(/[|!】\[\]\sTＴ]/g,"").replace(/^[^一-龠ぁ-んァ-ヶ]+/,"").replace(/^ハ(?=[一-龠])/,"八").replace(/(?<=[一-龠])ハ(?=[一-龠])/g,"八"));
+        rows.push({y:g.y,on:tm[0],off:tm[1]||"",from:pl[0]||"",to:pl[1]||"",fare:ys[0].v}); });
+      rows.sort((p,q)=>p.y-q.y); } }
+  else L.forEach(l=>{ const c=clean(l.t); const tm=times(c); if(!tm.length) return; const pre=c.slice(0,c.search(/\d{1,2}\s*[:：]\s*\d{2}/)); if(rest(pre)||!/\d/.test(pre)) return;
+    const after=c.replace(/^.*?\d{2}\s*[:：]\s*\d{2}(\s+\d{2}\s*[:：]\s*\d{2})?/,"").trim().split(/\s+/); const pl=after.filter(t=>PL.test(t)); const ys=after.map(nipYenIn).filter(v=>v!=null); if(!ys.length) return;
+    rows.push({on:tm[0],off:tm[1]||"",from:pl[0]||"",to:pl[1]||"",fare:ys[0]}); });
+  return rows.map(r=>({on:r.on,off:r.off,from:r.from,to:r.to,fare:r.fare,pay:""})); }
 function nippoParse(rs){ const L=nipLines(rs), all=L.map(l=>l.t).join("\n"), o={};
   const yen=t=>{ const v=nipNum(nipYenFix(t)); return v!=null&&v>=500&&v<1000000?Math.round(v):null; };
   o.total=nipFind(L,/(総?営業?収入?|営\s*収|運\s*収|運賃\s*(合計|収入)?|売上\s*(合計)?|税込\s*合計|水揚げ?)(?!\s*(回|率|km))(\s*合\s*計)?/,yen,/(税抜|回数|1回|平均|単価|km|率)/);
@@ -1561,7 +1563,7 @@ function nippoParse(rs){ const L=nipLines(rs), all=L.map(l=>l.t).join("\n"), o={
   o.hired_rate=nipFind(L,/実\s*車\s*率/,t=>{ const v=nipNum(t); return v!=null&&v>0&&v<=100?v:null; });
   let dm=o.date?null:all.match(/(20\d\d)\s*[年\/.-]\s*(\d{1,2})\s*[月\/.-]\s*(\d{1,2})/); if(dm) o.date=dm[1]+"-"+p2(dm[2])+"-"+p2(dm[3]);
   else if(!o.date&&(dm=all.match(/(?:令和|R)\s*(\d{1,2})\s*[年\/.-]\s*(\d{1,2})\s*[月\/.-]\s*(\d{1,2})/))) o.date=(2018+Number(dm[1]))+"-"+p2(dm[2])+"-"+p2(dm[3]);
-  nipTplApply(L,o); o.rides=nipRides(L,o.fareX); if(o.count==null&&o.rides.length>=2) o.count=o.rides.length;
+  nipTplApply(L,o); o.rides=nipRides(L,o.fareX); if(o.rides.length>=2&&(o.count==null||o.rides.length>o.count)) o.count=o.rides.length;
   Object.defineProperty(o,"_L",{value:L,enumerable:false});
   return o; }
 function nipDumpBtn(L){ const dbg=btn("読み取った文字をファイルに保存（作る人に送る用）","ghost",async()=>{ const j=JSON.stringify({v:1,at:new Date().toISOString(),lines:L.map(l=>({t:l.text!=null?l.text:l.t,x:l.x,y:l.y,w:l.w,h:l.h,pg:l.pg}))});
@@ -1722,8 +1724,9 @@ function nipShow(doc,evs){
   const shId=doc.shift||(N.pick&&!String(N.pick).startsWith("past-")?N.pick:null), sh=shId&&N.shifts.find(z=>z.id===shId);
   const full=doc.rides.length>0&&(doc.count==null||doc.count===doc.rides.length)&&(doc.total==null||doc.total===repSum);
   const drop=full?appRides.filter(e=>!used.has(e.id)):[];
+  if(!full&&doc.rides.length&&(fixAmt.length||fixAdd.length)) msg.push("明細の読み取りが合計と合わないので、アプリの記録は自動では直していません。日報を明るい所で撮り直すと直ります。");
   N.synced=N.synced||{};
-  if(sh&&(fixAmt.length||fixAdd.length||drop.length)&&!N.synced[sh.id]){ N.synced[sh.id]=1;
+  if(sh&&full&&(fixAmt.length||fixAdd.length||drop.length)&&!N.synced[sh.id]){ N.synced[sh.id]=1;
     (async()=>{ const t0=sh.start, base0=new Date(t0); base0.setHours(0,0,0,0); const log=[];
       const at=hm=>{ const m=toMin(hm); if(m==null) return null; let t=base0.getTime()+m*60000; if(t<t0-3*3600000) t+=86400000; return t; };
       try{ for(const f of fixAmt){ const e=appRides.find(z=>z.id===f.id); await S.db.collection("events").doc(f.id).update({amount:f.fare,appAmount:e&&e.amount!=null?e.amount:null,fixedBy:"nippo"}); log.push(hhmm(e.at)+" 金額 "+fmtYen(e.amount||0)+"→"+fmtYen(f.fare)+"円"); }
