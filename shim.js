@@ -39,7 +39,15 @@ window.NO_CHAT=true;   // 雑談の相談はアプリに入れない
   let changeTimer=null;
   function save(){ LS.set("docs2",store); LS.set("queue2",queue); }
   function changed(){ clearTimeout(changeTimer); changeTimer=setTimeout(()=>{ listeners.forEach(f=>{ try{ f(); }catch(e){} }); },0); }
+  // アクセス解析（パールさん 11/27「すべての web ページは解析できるように」）：開いた回数・どこから来たか（?from=）・スマホ/PC・主な操作だけを数える。
+  // Cookie は使わず、IP も記録しない（Apps Script には届かない）。開発者用リンクの端末は数えない
+  const FROM=(()=>{ let q=null; try{ q=new URLSearchParams(location.search).get("from"); }catch(e){} if(q) LS.set("from",String(q).replace(/[^\w.-]/g,"").slice(0,40)); return LS.get("from",""); })();
+  function hit(ev){ try{ if(!API||!TESTER) return; const day=new Date().toISOString().slice(0,10), key="hit_"+ev;
+      if(ev!=="open"&&LS.get(key,"")===day) return; LS.set(key,day);
+      const ua=navigator.userAgent||""; call({op:"hit",ev,from:FROM,dv:/iPhone|iPad|Android|Mobile/i.test(ua)?"sp":"pc",kind:TESTER.web?"web":"app"}).catch(()=>{}); }catch(e){} }
+  window.APP_HIT=hit;
   function write(c,i,d){
+    try{ if(d&&c==="events"&&d.type==="shift_start") hit("shift"); else if(d&&c==="reports"&&d.total) hit("nippo"); else if(d&&c==="consent") hit("consent"); }catch(e){}
     const k=c+"/"+i, prev=store[k];
     store[k]={c,i,u:Math.max(Date.now(),prev?prev.u+1:0),d:d==null?null:JSON.parse(JSON.stringify(d))};
     if(!queue.includes(k)) queue.push(k);
@@ -262,6 +270,7 @@ window.NO_CHAT=true;   // 雑談の相談はアプリに入れない
     if("serviceWorker" in navigator){ /* なし：常に最新を読む */ }
   });
   pull().then(sync);
+  hit("open");
   setInterval(()=>{ pull().then(sync); },60000);
   window.addEventListener("online",()=>{ pull().then(sync); });
   document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible") pull().then(sync); });
