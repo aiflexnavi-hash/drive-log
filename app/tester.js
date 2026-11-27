@@ -21,7 +21,7 @@ window.TesterUI=(function(){
   function overlay(){ const o=el("div",{className:"tq"}); const b=el("div",{className:"bx"}); o.append(b); document.body.append(o); return [o,b]; }
   const shortId=d=>String(d||"").slice(-6).toUpperCase();
   // ブラウザのお試し版（一般の人）は「テスト版」と言わない。クラウドワークスのテスターは自分で切り替えるとアンケートが出る
-  const isCW=()=>!C.web||!!LS.get("cw",false);
+  const isCW=()=>false; // クラウドワークスのテスターは0人（2026-11-27）なので、テスト版の表示とアンケートは出さない
   const idLab=()=>isCW()?"テスターID":"利用ID";
 
   function consent(ctx,done){
@@ -93,8 +93,7 @@ window.TesterUI=(function(){
       bar.textContent="";
       const done=!!LS.get("survey",null), due=new Date().toISOString().slice(0,10)>=SURVEY_FROM;
       if(!isCW()){ bar.append(el("div",{textContent:"お試し版　利用ID："+shortId(ctx.DEV)}));
-        const cw=el("a",{href:"#",textContent:"クラウドワークスのテスターの方はこちら"}); cw.style.cssText="display:block;margin-top:6px;font-size:15px;color:inherit;opacity:.7";
-        cw.onclick=e=>{ e.preventDefault(); LS.set("cw",true); draw(); }; bar.append(cw); bar.style.borderColor="#556"; return; }
+        bar.style.borderColor="#556"; return; }
       bar.append(el("div",{textContent:"テスト版　テスターID："+shortId(ctx.DEV)}));
       if(done) bar.append(el("small",{textContent:"アンケートは送信済みです（直して送り直すこともできます）"}));
       else bar.append(el("small",{textContent:due?"テスト終了アンケートをお願いします（約10分）":"テストの最後にアンケートをお願いします（"+SURVEY_FROM.slice(5).replace("-","/")+" から）"}));
