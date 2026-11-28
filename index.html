@@ -157,6 +157,7 @@ body.hideyen #stats .yen b, body.hideyen #log .yen, body.hideyen #goal .yen, bod
   <div id="goal" hidden></div>
   <div class="lock" id="lock" hidden>走行中です。文字入力（相談・メモ）は停車してから</div>
   <div id="main"></div>
+  <div id="answers" class="sheet" hidden style="padding:10px 12px;margin:8px 0"></div>
 
   <section class="sheet" id="chat" hidden>
     <div class="sub">相談（記録を見て答えます）</div>
@@ -550,7 +551,7 @@ function render(){
   $("stSales").textContent=fmtYen(sales); $("stRides").textContent=rides.length;
   if(S.shift){ const el=Date.now()-S.shift.start; $("stTime").textContent=hm(el); $("stRate").textContent= el>600000 ? fmtYen(Math.round(sales/(el/3600000))) : "–"; }
   else { $("stTime").textContent="–"; $("stRate").textContent="–"; }
-  goalRender(sales);
+  goalRender(sales); answersRender();
 
   const m=$("main"); m.replaceChildren();
   if(S.sheet==="dropoff") m.append(dropSheet());
@@ -1913,15 +1914,18 @@ async function nipMonth(doc,box){ if(!box||!doc.date) return; const p=period(doc
 
 
 /* ---------- 自分の記録だけで出す「稼げる時間帯・曜日・乗車地」 ---------- */
-async function myStatsRender(){
-  const box=$("myStatsBody"); if(!box||!S.db) return; box.replaceChildren();
-  const note=t=>{ const p=document.createElement("p"); p.className="note"; p.style.fontSize="16px"; p.textContent=t; return p; };
+/* ---------- いまの答え（粘る？帰る？・どこ行く？・乗り場の回転。自分の記録だけ、AIなし） ---------- */
+const MD={at:0,p:null,v:null};
+function myData(force){
+  if(!S.db) return Promise.resolve({duty:[],rides:[],rings:[]});
+  if(!force&&MD.v&&Date.now()-MD.at<600000) return Promise.resolve(MD.v);
+  if(MD.p) return MD.p;
+  MD.p=(async()=>{
   let reps=[], shifts=[], evs=[];
   try{ reps=(await S.db.collection("reports").get()).docs.filter(d=>d.id!=="settings").map(d=>({id:d.id,...d.data()})); }catch(e){}
   try{ shifts=(await S.db.collection("shifts").get()).docs.map(d=>({id:d.id,...d.data()})); }catch(e){}
   try{ evs=(await S.db.collection("events").get()).docs.map(d=>d.data()); }catch(e){}
   const toMs=(date,hm,after)=>{ const m=/^(\d{1,2}):(\d{2})/.exec(String(hm||"")); if(!m||!date) return null; let t=new Date(date+"T00:00:00").getTime()+(Number(m[1])*60+Number(m[2]))*60000; if(after!=null&&t<after) t+=86400000; return t; };
-  // 乗務ごとに「勤務時間帯」と「乗車（時刻・運賃・乗車地）」をそろえる。日報があればそちらを優先
   const duty=[], rides=[], seen=new Set(), rings=evs.filter(e=>e.type==="ring"||e.type==="dispatch_accept").map(e=>({t:e.at,app:e.app||null,took:e.type==="dispatch_accept"}));
   reps.forEach(r=>{ if(!r.date||!Array.isArray(r.rides)||!r.rides.length) return;
     const st=toMs(r.date,r.start), en=st!=null?toMs(r.date,r.end,st):null;
@@ -1934,8 +1938,79 @@ async function myStatsRender(){
     const my=evs.filter(e=>e.shift===sh.id).sort((a,b)=>a.at-b.at); let on=null;
     const rs=[]; let ws=null; my.forEach(e=>{ if(e.type==="wait_start"||e.type==="stand_start") ws=e; if(e.type==="wait_end"||e.type==="stand_end") ws=null;
       if(e.type==="pickup"){ on=e; on._w=(ws&&(on.kind==="付け待ち"||on.kind==="乗り場"))?(on.at-ws.at)/60000:null; ws=null; }
-      if(e.type==="dropoff"&&Number(e.amount)>0){ rs.push({t:on?on.at:e.at,fare:Number(e.amount),from:on&&on.place||null,kind:on&&on.kind||null,app:on&&on.app||null,pay:e.pay||null,date,wait:on?on._w:null,ride:on?(e.at-on.at)/60000:null}); on=null; } });
+      if(e.type==="dropoff"&&Number(e.amount)>0){ rs.push({t:on?on.at:e.at,fare:Number(e.amount),from:on&&on.place||null,kind:on&&on.kind||null,app:on&&on.app||null,pay:e.pay||null,date,wait:on?on._w:null,ride:on?(e.at-on.at)/60000:null,lat:on&&on.lat!=null?on.lat:null,lng:on&&on.lng!=null?on.lng:null}); on=null; } });
     if(!rs.length) return; duty.push({st:sh.start,en:sh.end,date}); rides.push(...rs); });
+  MD.v={duty,rides,rings}; MD.at=Date.now(); MD.p=null; return MD.v; })();
+  return MD.p.catch(e=>{ MD.p=null; return {duty:[],rides:[],rings:[]}; });
+}
+// 曜日の種類（出庫日で）：平日（月〜木）・金・祝前・土・日祝
+function dayKind(date){ const t=new Date(date+"T12:00:00"), w=t.getDay(); if(w===0||jpHol(date)) return "日祝"; if(w===6) return "土";
+  const n=new Date(t); n.setDate(n.getDate()+1); const nk=ymd(n); if(w===5||jpHol(nk)) return "金・祝前"; return "平日"; }
+function kmBetween(a,b,c,d){ const R=6371, x=(c-a)*Math.PI/180, y=(d-b)*Math.PI/180, s=Math.sin(x/2)**2+Math.cos(a*Math.PI/180)*Math.cos(c*Math.PI/180)*Math.sin(y/2)**2; return 2*R*Math.asin(Math.sqrt(s)); }
+// 純粋な計算（テストしやすいように分けている）
+function answersCalc(data,o){
+  const {duty,rides}=data, now=o.now, out={stay:null,where:null,stand:null,n:duty.length};
+  if(duty.length<3) return out;
+  const dk=o.dayKind, hrs=new Array(24).fill(0), sal=new Array(24).fill(0), hrsK=new Array(24).fill(0), salK=new Array(24).fill(0);
+  duty.forEach(d=>{ const k=dayKind(d.date)===dk; for(let t=d.st;t<d.en;){ const h=new Date(t).getHours(), next=Math.min(d.en,new Date(t).setMinutes(60,0,0)); hrs[h]+=(next-t)/3600000; if(k) hrsK[h]+=(next-t)/3600000; t=next; } });
+  rides.forEach(r=>{ const h=new Date(r.t).getHours(); sal[h]+=r.fare; if(dayKind(r.date)===dk) salK[h]+=r.fare; });
+  const allH=hrs.reduce((a,b)=>a+b,0), avg=allH?sal.reduce((a,b)=>a+b,0)/allH:0;
+  const rate=h=>hrsK[h]>=2?salK[h]/hrsK[h]:(hrs[h]>=1?sal[h]/hrs[h]:avg);
+  // 粘る？帰る？：今から乗務の終わりまで、いつもの自分の同じ曜日の種類・時間帯の営収/h を足す
+  const end=o.end, remain=Math.max(0,end-now);
+  let expect=0; for(let t=now;t<end;){ const h=new Date(t).getHours(), next=Math.min(end,new Date(t).setMinutes(60,0,0)); expect+=rate(h)*(next-t)/3600000; t=next; }
+  const h0=new Date(now).getHours(), next2=(rate(h0)+rate((h0+1)%24))/2;
+  out.stay={expect:Math.round(expect),remain,next2:Math.round(next2),avg:Math.round(avg),left:o.left};
+  if(o.left!=null&&o.left>0&&remain>600000){ out.stay.verdict=expect>=o.left*1.1?"届く":expect>=o.left*0.85?"ぎりぎり":"届かない"; }
+  else out.stay.verdict=next2>=avg*1.2?"伸びる":next2<avg*0.7?"伸びにくい":"ふつう";
+  // どこ行く？：今の時間の前後1時間に、同じ曜日の種類で乗せた場所（足りなければ曜日を問わず）
+  const near=r=>{ const h=new Date(r.t).getHours(); return Math.min((h-h0+24)%24,(h0-h+24)%24)<=1; };
+  const group=list=>{ const m={}; list.forEach(r=>{ if(!r.from) return; const k=String(r.from).trim(); const x=m[k]=m[k]||{name:k,n:0,s:0,lat:null,lng:null}; x.n++; x.s+=r.fare; if(r.lat!=null&&x.lat==null){ x.lat=r.lat; x.lng=r.lng; } }); return Object.values(m); };
+  let base=rides.filter(r=>near(r)&&dayKind(r.date)===dk), scope="same";
+  if(!group(base).some(x=>x.n>=2)){ base=rides.filter(near); scope="any"; }
+  const pl=group(base).filter(x=>x.n>=2).sort((a,b)=>b.n-a.n||b.s-a.s).slice(0,3).map(x=>({name:x.name,n:x.n,avg:Math.round(x.s/x.n),km:(o.pos&&x.lat!=null)?kmBetween(o.pos.lat,o.pos.lng,x.lat,x.lng):null}));
+  out.where={scope,list:pl,total:base.length};
+  // 乗り場・付け待ちの回転：場所ごとの平均の待ち。今の時間の前後2時間を優先、近い順
+  const W={}; rides.forEach(r=>{ if(r.wait==null||!r.from) return; const k=String(r.from).trim(), h=new Date(r.t).getHours(), inT=Math.min((h-h0+24)%24,(h0-h+24)%24)<=2;
+    const x=W[k]=W[k]||{name:k,kind:r.kind,n:0,w:0,s:0,r:0,rn:0,tn:0,tw:0,lat:null,lng:null}; x.n++; x.w+=r.wait; x.s+=r.fare; if(r.ride!=null){ x.r+=r.ride; x.rn++; } if(inT){ x.tn++; x.tw+=r.wait; } if(r.lat!=null&&x.lat==null){ x.lat=r.lat; x.lng=r.lng; } });
+  const st=Object.values(W).map(x=>{ const w=x.tn>=2?x.tw/x.tn:x.w/x.n, rd=x.rn?x.r/x.rn:15; return {name:x.name,kind:x.kind,n:x.n,timed:x.tn>=2,wait:Math.round(w),avg:Math.round(x.s/x.n),perH:Math.round((x.s/x.n)/((w+rd)/60)),km:(o.pos&&x.lat!=null)?kmBetween(o.pos.lat,o.pos.lng,x.lat,x.lng):null}; });
+  st.sort((a,b)=>(a.km!=null&&b.km!=null)?a.km-b.km:(b.n-a.n));
+  out.stand=st.filter(x=>x.n>=1).slice(0,3);
+  return out;
+}
+let ANS_T=0;
+const kmTxt=k=>k==null?"":k<0.3?"・すぐ近く":"・約"+k.toFixed(1)+"km";
+async function answersRender(force){
+  const box=$("answers"); if(!box) return;
+  if(!S.shift){ box.hidden=true; return; }
+  if(!force&&Date.now()-ANS_T<60000&&!box.hidden) return; ANS_T=Date.now();
+  const data=await myData();
+  const sd=new Date(S.shift.start), date=ymd(sd), sales=S.events.filter(e=>e.type==="dropoff").reduce((a,e)=>a+(e.amount||0),0);
+  const end=S.shift.start+(G.hours||12)*3600000, left=G.target?Math.max(0,G.target-sales):null;
+  const pos=S.pos&&Date.now()-S.pos.at<600000&&S.pos.acc<=300?S.pos:null;
+  const A=answersCalc(data,{now:Date.now(),end,left,dayKind:dayKind(date),pos});
+  box.replaceChildren(); box.hidden=false;
+  const mk=(tag,css,txt)=>{ const e=document.createElement(tag); if(css) e.style.cssText=css; if(txt!=null) e.textContent=txt; return e; };
+  const sec=(q,a,sub)=>{ const d=mk("div","padding:8px 0;border-top:1px solid var(--line)"); d.append(mk("div","font-size:15px;color:var(--muted)",q), mk("div","font-size:20px;font-weight:700;line-height:1.4",a)); if(sub) d.append(mk("div","font-size:15px;color:var(--muted);line-height:1.5",sub)); box.append(d); };
+  box.append(mk("div","font-size:17px;font-weight:700","いまの答え（自分の記録 "+A.n+"乗務から）"));
+  if(A.n<3){ sec("粘る？　どこ行く？　乗り場は？","記録が3乗務分たまると、ここに答えが出ます","日報を写真で読み込むと、過去の分もすぐ使えます。"); return; }
+  const s=A.stay, yen=v=>fmtYen(v)+"円";
+  const ex="いつもの自分なら、残り"+hm(s.remain)+"で 約"+yen(s.expect);
+  if(s.verdict==="届く") sec("粘る？帰る？","粘れば目標に届く見込み",ex+"（目標まであと "+yen(s.left)+"）");
+  else if(s.verdict==="ぎりぎり") sec("粘る？帰る？","ぎりぎり。粘るなら最後まで",ex+"（目標まであと "+yen(s.left)+"）");
+  else if(s.verdict==="届かない") sec("粘る？帰る？","今日は目標に届かない見込み。早めに上がるのも手",ex+"（目標まであと "+yen(s.left)+"、約"+yen(Math.max(0,s.left-s.expect))+"足りない）");
+  else { const a=s.verdict==="伸びる"?"この後は稼げる時間帯。粘る価値あり":s.verdict==="伸びにくい"?"この後は伸びにくい時間帯。帰ってもよさそう":"この後はいつも通りの時間帯";
+    sec("粘る？帰る？",a,"この後2時間のいつもの営収/h 約"+yen(s.next2)+"（自分の平均 "+yen(s.avg)+"）"+(G.target?"":"。今日の目標を入れると「届くか」で答えます")); }
+  const w=A.where;
+  if(w.list.length) sec("どこ行く？",w.list.map(x=>x.name).join("・"),(w.scope==="same"?"同じ曜日の種類で":"曜日を問わず")+"、今の時間の前後に自分が乗せた場所："+w.list.map(x=>x.name+" "+x.n+"回・平均"+yen(x.avg)+kmTxt(x.km)).join("／"));
+  else sec("どこ行く？","この時間はまだ記録が足りません","今の時間の前後に2回以上乗せた場所が出てくると、ここに出ます（乗車地の名前は日報か、乗車を押した場所から取ります）。");
+  if(A.stand.length) sec("乗り場・付け待ちの回転は？",A.stand.map(x=>x.name+" "+x.wait+"分").join("・"),A.stand.map(x=>x.name+"（"+(x.kind||"")+"）：並んでから乗るまで平均"+x.wait+"分"+(x.timed?"（この時間帯）":"")+"・平均"+yen(x.avg)+"・1時間の見込み 約"+yen(x.perH)+kmTxt(x.km)+"（"+x.n+"回）").join("／"));
+  else sec("乗り場・付け待ちの回転は？","まだ記録がありません","「乗り場に並ぶ」「付け待ち開始」を押してから乗せると、場所ごとの待ち時間が出ます。");
+}
+async function myStatsRender(){
+  const box=$("myStatsBody"); if(!box||!S.db) return; box.replaceChildren();
+  const note=t=>{ const p=document.createElement("p"); p.className="note"; p.style.fontSize="16px"; p.textContent=t; return p; };
+  const {duty,rides,rings}=await myData(true);
   if(!duty.length){ box.append(note("まだデータがありません。日報を読み込むか、記録した乗務が増えると出ます。")); return; }
   box.append(note(duty.length+"乗務・"+rides.length+"乗車の記録から出しています（自分のデータだけ）。回数が少ない所は、たまたまの可能性があります。"));
   const tbl=(head,rows)=>{ const t=document.createElement("table"); t.style.cssText="width:100%;border-collapse:collapse;font-size:17px;font-variant-numeric:tabular-nums;margin:6px 0 14px";
