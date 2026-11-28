@@ -355,7 +355,7 @@ function goalRender(sales){
     const t=document.createElement("div"); t.style.fontWeight="700"; t.textContent="今日の目標営収は？"; box.append(t);
     const c=document.createElement("div"); c.className="chips";
     // 金額を選んでも閉じない（続けて乗務の長さを選べるように）。長さを押すか「決定」で閉じる
-    [30000,35000,40000,45000,50000,60000].forEach(v=>{ const b=btn(fmtYen(v),"",()=>goalSave(v,null,true)); b.dataset.free="1"; if(G.target===v) b.setAttribute("aria-pressed","true"); c.append(b); });
+    [30000,35000,40000,45000,50000,60000,70000,80000,100000].forEach(v=>{ const b=btn(fmtYen(v),"",()=>goalSave(v,null,true)); b.dataset.free="1"; if(G.target===v) b.setAttribute("aria-pressed","true"); c.append(b); });
     const o=btn("その他","",()=>{ const v=Number(String(prompt("目標営収（円）","")||"").replace(/[^0-9]/g,"")); if(v>0) goalSave(v,null,true); }); o.dataset.free="1"; c.append(o);
     const hl=document.createElement("div"); hl.className="sub"; hl.style.cssText="width:100%;margin-top:6px"; hl.textContent="乗務の長さ（必要な営収/h の計算に使う）"; c.append(hl);
     [8,10,12,14,16].forEach(h=>{ const b=btn(h+"時間","",()=>{ G.hours=h; if(G.target) goalSave(G.target,h); else render(); }); b.dataset.free="1"; b.setAttribute("aria-pressed",String((G.hours||12)===h)); c.append(b); });
@@ -496,7 +496,11 @@ function setupOpen(only){
       h("足切り額（月の税抜営収）","なければ「なし」");
       { const v=[0,400000,450000,500000]; const c=chips(v,st.ashi||0,x=>x?fmtYen(x)+"円":"なし",x=>st.ashi=x); other(c,"足切り額（円）",st.ashi||0,v,x=>st.ashi=x); } }
       h("月の目標営収（税込）","なければ「なし」。1回あたりの目安を出します");
-      { const v=[0,600000,700000,800000,900000]; const c=chips(v,st.mt||0,x=>x?fmtYen(x)+"円":"なし",x=>st.mt=x); other(c,"月の目標営収（円）",st.mt||0,v,x=>st.mt=x); }
+      // 記録があれば、先月の実績・+5%・+10% を先頭に出す（地域で相場が全く違うので、自分の数字が一番使える）
+      if(st.hist===undefined){ st.hist=null; dayData().then(d=>{ const p0=period(ymd(new Date())); if(!p0) return; const pd=new Date(p0.from+"T12:00:00"); pd.setDate(pd.getDate()-1); const pp=period(ymd(pd)); if(!pp) return; const m=monthSum(pp,d); if(m.inc>0){ st.hist=m.inc; if(document.getElementById("setupOv")) draw(); } }).catch(()=>{}); }
+      if(st.hist){ const r=x=>Math.round(x/10000)*10000, hv=[[r(st.hist),"先月の実績"],[r(st.hist*1.05),"先月+5%"],[r(st.hist*1.1),"先月+10%"]];
+        const hc=document.createElement("div"); hc.className="chips"; hv.forEach(([v,l])=>{ const b=btn(l+" "+fmtYen(v)+"円","",()=>{ st.mt=v; draw(); }); b.dataset.free="1"; b.setAttribute("aria-pressed",String(st.mt===v)); hc.append(b); }); bx.append(hc); }
+      { const v=[0,400000,500000,600000,700000,800000,900000,1000000,1200000,1500000]; const c=chips(v,st.mt||0,x=>x?(x>=1000000?(x/10000)+"万円":fmtYen(x)+"円"):"なし",x=>st.mt=x); other(c,"月の目標営収（円）",st.mt||0,v,x=>st.mt=x); }
     }
     // 出番日のカレンダー（今月度・来月度）
     N.cutoff=st.cut||N.cutoff||15;
