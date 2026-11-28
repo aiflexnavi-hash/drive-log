@@ -260,11 +260,17 @@ document.addEventListener("pointerdown",()=>{ PTR.down=true; },true);
 function gpsFresh(){ return !!(S.pos&&Date.now()-S.pos.at<120000&&S.pos.acc<=100); }
 function autoLeave(p){ if(!S.shift||!p||p.acc>50||S.leaving) return; const st=currentState(); if(st!=="wait"&&st!=="stand") return;
   const a=startPlace(st); if(!a) return;
+  // 同じ「並ぶ」に対して自動の離脱は1回だけ（保存が画面に戻るまでの間に位置が何度も来て、何十回も記録されていた 11/29）
+  const key=a.id||a.at; if(S.leftFor===key) return;
   if(Math.hypot((p.lat-a.lat)*111000,(p.lng-a.lng)*91000)<300||(p.spd!=null&&p.spd<3)) return;
-  S.leaving=true; record(st==="wait"?"wait_end":"stand_end",{src:"auto"}).finally(()=>{ S.leaving=false; }); }
+  S.leaving=true; S.leftFor=key; record(st==="wait"?"wait_end":"stand_end",{src:"auto"}).finally(()=>{ S.leaving=false; }); }
 function moving(){ return !!(S.pos && S.pos.spd!=null && Date.now()-S.pos.at<15000 && S.pos.spd>2.8); }
 
 /* ---------- state ---------- */
+// 同じ離脱が続けて何回も入っていたら、2回目以降を消す（11/29 の重複の後片付けも兼ねる）
+function dupClean(){ if(S.cleaning||!S.db) return; const del=[]; let prev=null;
+  for(const e of S.events){ if((e.type==="wait_end"||e.type==="stand_end")&&prev&&prev.type===e.type&&e.id) del.push(e.id); prev=e; }
+  if(!del.length) return; S.cleaning=true; Promise.all(del.map(id=>S.db.collection("events").doc(id).delete().catch(()=>{}))).finally(()=>{ S.cleaning=false; }); }
 function currentState(){
   if(!S.shift) return "off";
   let st="vacant";
@@ -2394,7 +2400,7 @@ function watchShift(){
     if(changed){ V.dataAt=0;
       if(unsubEvents){ unsubEvents(); unsubEvents=null; }
       S.events=[];
-      if(sh){ unsubEvents=S.db.collection("events").where("shift","==",sh.id).orderBy("at").onSnapshot(s=>{ S.events=s.docs.map(x=>({id:x.id,...x.data()})); render(); },e=>showErr("記録を読めません（"+e.code+"）。")); }
+      if(sh){ unsubEvents=S.db.collection("events").where("shift","==",sh.id).orderBy("at").onSnapshot(s=>{ S.events=s.docs.map(x=>({id:x.id,...x.data()})); dupClean(); render(); },e=>showErr("記録を読めません（"+e.code+"）。")); }
     }
     render();
   },e=>showErr("記録を読めません（"+e.code+"）。"));
