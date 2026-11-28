@@ -580,7 +580,7 @@ function render(){
       cars.forEach(c=>{ const b=btn(c,"",async()=>{ let v=c; if(c==="その他"){ const w=String(prompt("車種を入力","")||"").trim().slice(0,20); if(!w) return; v=w; try{ const l=cars.filter(x=>x!=="その他"); if(!l.includes(w)) l.push(w); l.push("その他"); localStorage.setItem("cars",JSON.stringify(l)); }catch(e){} }
         try{ await S.db.collection("shifts").doc(S.shift.id).update({car:v}); S.shift.car=v; S.carEdit=false; try{ localStorage.setItem("lastCar",v); }catch(e){} toast("✓ 車種："+v); render(); }catch(e){ toast("保存できませんでした",false); } }); b.dataset.free="1"; ch.append(b); });
       if(S.carEdit){ const x=btn("やめる","ghost",()=>{ S.carEdit=false; render(); }); x.dataset.free="1"; ch.append(x); } g.append(ch); }
-    if(st==="vacant"||st==="cruise"){ g.append(btn("乗車（手上げ）","hired",()=>record("pickup",{kind:"手上げ"})), btn("アプリ受注（迎車へ）","hired",()=>record("dispatch_accept")));
+    if(st==="vacant"||st==="cruise"){ const lv=S.events[S.events.length-1], rec=lv&&(lv.type==="wait_end"||lv.type==="stand_end")&&lv.src==="auto"&&Date.now()-lv.at<300000; g.append(btn(rec?"乗せて出た（"+(lv.type==="stand_end"?"乗り場":"付け待ち")+"から乗車）":"乗車（手上げ）","hired",()=>record("pickup",{kind:"手上げ"})), btn("アプリ受注（迎車へ）","hired",()=>record("dispatch_accept")));
       g.append(btn("付け待ち開始","wait",()=>record("wait_start")), btn("乗り場に並ぶ","wait",()=>record("stand_start")));
       const rb=btn("休憩開始","ghost wide",()=>record("rest_start")); g.append(rb); }
     if(["vacant","cruise","wait","stand"].includes(st)) ringRow(g);
@@ -788,6 +788,11 @@ function editSheet(){
       const tb=btn(d.toll?"高速料金 "+fmtYen(d.toll)+"円（押して直す）":"高速料金を入れる（あれば）","ghost",()=>{ const v=Number(String(prompt("高速料金（円）",d.toll||"")||"").replace(/[^0-9]/g,"")); d.toll=v>0?v:0; render(); }); tb.dataset.free="1"; tb.style.cssText="min-height:52px;font-size:18px"; s.append(tb);
       s.append(sub("人数")); s.append(chips(["1","2","3","4+"],"pax")); }
   }
+  // 乗り場・付け待ちで「乗車」を押し忘れて出発したとき：離脱の記録をそのまま乗車に直せる（11/29 パールさん）
+  if(e.type==="stand_end"||e.type==="wait_end"){ const k=e.type==="stand_end"?"乗り場":"付け待ち";
+    const cb=btn("乗せて出発していた → 「乗車（"+k+"から）」に直す","hired wide",async()=>{
+      try{ await S.db.collection("events").doc(e.id).update({type:"pickup",kind:k,at:d.at,src:null,fixed:"leave2pickup"}); toast("✓ 乗車（"+k+"から）に直しました"); close(); }catch(x){ showErr("直せませんでした（"+(x&&x.code||"不明")+"）。"); } });
+    cb.dataset.free="1"; cb.style.cssText="width:100%;margin:10px 0"; s.append(cb); }
   if(e.type==="memo"){ s.append(sub("メモ")); const t=document.createElement("textarea"); t.value=d.note; t.addEventListener("input",()=>{ d.note=t.value; }); s.append(t); }
   if(e.n!=null){ s.append(sub("台数")); const r=document.createElement("div"); r.style.cssText="display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center";
     const b1=btn("−1","",()=>{ d.n=Math.max(0,(d.n||0)-1); render(); }), b2=btn("+1","",()=>{ d.n=(d.n||0)+1; render(); }); b1.dataset.free=b2.dataset.free="1";
