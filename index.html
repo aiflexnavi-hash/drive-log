@@ -227,7 +227,7 @@ function startGps(){
   try{
     navigator.geolocation.watchPosition(p=>{
       S.pos={lat:+p.coords.latitude.toFixed(6),lng:+p.coords.longitude.toFixed(6),acc:Math.round(p.coords.accuracy),spd:p.coords.speed,at:Date.now()};
-      el.textContent="位置：OK（±"+S.pos.acc+"m）"; el.className="gps ok"; trackAdd(S.pos); autoLeave(S.pos); gpsRender();
+      el.textContent="位置：OK（±"+S.pos.acc+"m）"; el.className="gps ok"; trackAdd(S.pos); autoLeave(S.pos); gpsRender(); stnCheck();
     },e=>{ el.textContent= e.code===1 ? "位置：許可されていません" : "位置：取れません"; el.className="gps bad"; },
     {enableHighAccuracy:true,maximumAge:5000,timeout:20000});
   }catch(e){ el.textContent="位置：使えません"; el.className="gps bad"; }
@@ -1978,6 +1978,31 @@ function answersCalc(data,o){
   out.stand=st.filter(x=>x.n>=1).slice(0,3);
   return out;
 }
+/* ---------- 駅の着（近くの駅に大阪からの電車が着く時刻。公式時刻表から） ---------- */
+// 時刻は「その駅の発車時刻」＝ほぼ着いた時刻。24時以降は 24:11 のように書く（前の日の続き）
+const STN=[
+  {name:"近鉄八尾",line:"近鉄大阪線（大阪上本町から）",lat:34.6298,lng:135.6042,src:"近鉄 公式時刻表（2026年3月14日現在）",
+   wd:"5:38,45,57|6:07,20,23,34,37,49,51|7:05,07,15,21,24,31,36,38,47,49,55,59|8:04,09,15,22,27,30,35,37,41,48,53,57|9:07,10,15,19,23,25,32,38,40,49,54,57|10:02,08,15,19,25,27,32,38,45,49,57|11:02,08,19,24,33,37,49,54|12:02,07,19,24,32,36,49,54|13:02,07,19,24,32,38,49,54|14:02,07,19,24,32,37,49,54|15:02,07,19,24,27,32,37,49,54|16:05,08,14,17,26,29,36,44,52|17:03,05,16,19,32,35,45,47|18:00,03,15,19,29,35,37,45,49,59|19:04,15,19,29,34,37,45,49,59|20:04,15,24,27,36,38,50,53|21:06,08,20,24,36,38,50,53|22:06,09,20,26,35,48,51|23:06,12,21,35,37,55,58|24:11,26",
+   we:"5:39,49,53|6:10,19,30,32,47,50,59|7:05,08,21,24,34,36,46,48,58|8:07,09,18,22,26,36,46,49,55|9:06,11,15,26,29,37,40,49,51,57|10:02,07,10,19,24,35,39,49,55,57|11:00,04,07,09,19,24,27,32,38,49,54,57|12:02,07,19,24,32,38,40,49,54|13:02,08,19,24,32,39,49,53|14:02,08,19,24,32,38,49,54|15:02,08,19,24,32,38,49,54|16:02,08,19,27,37,44,51,54|17:05,08,20,28,30,40,50,52|18:04,14,17,27,29,40,50,52|19:02,05,15,17,29,31,39,45,52|20:00,09,14,25,27,38,40,54,59|21:09,14,25,36,39,52,55|22:05,09,22,27,40,46,56,58|23:09,13,20,35,37,55,58|24:12,26"}
+];
+function stnTimes(s){ return s.split("|").flatMap(g=>{ const [h,ms]=g.split(":"); return ms.split(",").map(m=>Number(h)*60+Number(m)); }); }
+STN.forEach(s=>{ s.WD=stnTimes(s.wd); s.WE=stnTimes(s.we); });
+// 今の時刻から「運行日」と分を出す（深夜0〜3時は前の日の続き）
+function stnNow(now){ const d=new Date(now-3*3600000), k=ymd(d), w=d.getDay(); const holi=w===0||w===6||!!jpHol(k);
+  const base=new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(); return {holi,min:(now-base)/60000,base}; }
+function stnNext(s,now){ const t=stnNow(now), L=t.holi?s.WE:s.WD, i=L.findIndex(m=>m>=t.min-0.5);
+  if(i<0) return {done:true,last:L[L.length-1],base:t.base,holi:t.holi};
+  return {done:false,at:t.base+L[i]*60000,mins:Math.round(L[i]-t.min),isLast:i===L.length-1,last:L[L.length-1],next2:L[i+1]!=null?t.base+L[i+1]*60000:null,base:t.base,holi:t.holi}; }
+const minHm=m=>(Math.floor(m/60)%24)+":"+String(m%60).padStart(2,"0");
+const STN_SEEN={};
+function stnNear(pos,km){ return STN.map(s=>({s,km:kmBetween(pos.lat,pos.lng,s.lat,s.lng)})).filter(x=>x.km<=km).sort((a,b)=>a.km-b.km); }
+// 駅の近く（600m）で、5分前に1回だけ知らせる。乗務中で、実車・迎車でないとき
+function stnCheck(){ try{
+  if(!S.shift||!S.pos||Date.now()-S.pos.at>120000) return; const st=currentState(); if(st==="hired"||st==="dispatch"||st==="arrived"||st==="off") return;
+  stnNear(S.pos,0.6).forEach(({s})=>{ const n=stnNext(s,Date.now()); if(n.done||n.mins<3||n.mins>6) return; const key=s.name+n.at; if(STN_SEEN[key]) return; STN_SEEN[key]=1;
+    const t="近くの"+s.name+"駅に、"+n.mins+"分後（"+hhmm(n.at)+"）に大阪からの電車が着きます"+(n.isLast?"。これが終電です":"");
+    toast(t,true); try{ navigator.vibrate&&navigator.vibrate([80,60,80]); }catch(e){} try{ ssSpeak(t); }catch(e){} });
+}catch(e){} }
 let ANS_T=0;
 const kmTxt=k=>k==null?"":k<0.3?"・すぐ近く":"・約"+k.toFixed(1)+"km";
 async function answersRender(force){
@@ -1993,6 +2018,9 @@ async function answersRender(force){
   const mk=(tag,css,txt)=>{ const e=document.createElement(tag); if(css) e.style.cssText=css; if(txt!=null) e.textContent=txt; return e; };
   const sec=(q,a,sub)=>{ const d=mk("div","padding:8px 0;border-top:1px solid var(--line)"); d.append(mk("div","font-size:15px;color:var(--muted)",q), mk("div","font-size:20px;font-weight:700;line-height:1.4",a)); if(sub) d.append(mk("div","font-size:15px;color:var(--muted);line-height:1.5",sub)); box.append(d); };
   box.append(mk("div","font-size:17px;font-weight:700","いまの答え（自分の記録 "+A.n+"乗務から）"));
+  if(pos){ const ns=stnNear(pos,2); ns.slice(0,2).forEach(({s,km})=>{ const n=stnNext(s,Date.now());
+    if(n.done) sec("終電は？",s.name+"：今日の終電は終わりました","最後は "+minHm(n.last)+" 着（"+(n.holi?"土休日":"平日")+"ダイヤ）。"+s.line+"・"+s.src);
+    else sec("近くの駅の着は？",s.name+"：次は "+hhmm(n.at)+" 着（あと"+n.mins+"分）"+(n.isLast?"・これが終電":""),(n.next2?"その次 "+hhmm(n.next2)+"・":"")+"終電 "+minHm(n.last)+"（"+(n.holi?"土休日":"平日")+"）・約"+km.toFixed(1)+"km。"+s.line+"・"+s.src+"。駅の600m以内に入ると、着く5分前に知らせます"); }); }
   if(A.n<3){ sec("粘る？　どこ行く？　乗り場は？","記録が3乗務分たまると、ここに答えが出ます","日報を写真で読み込むと、過去の分もすぐ使えます。"); return; }
   const s=A.stay, yen=v=>fmtYen(v)+"円";
   const ex="いつもの自分なら、残り"+hm(s.remain)+"で 約"+yen(s.expect);
