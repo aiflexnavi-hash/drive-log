@@ -1204,10 +1204,10 @@ async function homeRender(){
     if(miss.length){ const k0=miss[0];
       const b=btn("日報がまだの日 "+miss.length+"日（"+miss.slice(0,3).map(k=>Number(k.slice(5,7))+"/"+Number(k.slice(8))).join("・")+(miss.length>3?"…":"")+"）→ 入れる","wait wide",()=>{ V.calDay=k0; V.formDay=k0; setView("cal"); setTimeout(()=>{ const c=[...document.querySelectorAll("#vCal .card")].pop(); if(c) c.scrollIntoView({behavior:"smooth",block:"start"}); },700); });
       b.dataset.free="1"; b.style.cssText="width:100%;min-height:72px;font-size:20px;margin-bottom:10px"; box.append(b); } }
-  // ブラウザ版（Android）で、乗務を1回終えた人にだけ：アプリ版の先行テスターへの案内（×で二度と出さない）
-  try{ const cfg=window.APP_CFG||{}; if(cfg.web&&/Android/i.test(navigator.userAgent)&&localStorage.getItem("apkInvOff")!=="1"&&Object.keys(days).some(k=>days[k].some(x=>!x.rep&&!x.live))){
+  // ブラウザ版（Android）で、3乗務分たまって答えが出始めた人にだけ：アプリ版の先行テスターへの案内（×で二度と出さない）
+  try{ const cfg=window.APP_CFG||{}; if(cfg.web&&/Android/i.test(navigator.userAgent)&&localStorage.getItem("apkInvOff")!=="1"&&Object.keys(days).reduce((a,k)=>a+days[k].filter(x=>!x.live&&(x.rep||x.rides>0||(x.hours||0)>=1)).length,0)>=3){
     const c=mk("div","position:relative;padding-right:44px",null,"card");
-    c.append(mk("div","font-size:17px;line-height:1.5","Androidの方へ：アプリ版なら画面を消しても距離を測れます。"));
+    c.append(mk("div","font-size:17px;line-height:1.5","3乗務分たまったので、答えが出せるようになりました。Androidの方は、アプリ版なら画面を消しても距離を測れます。"));
     const a=mk("a","display:inline-block;margin-top:6px;font-size:18px;font-weight:700","先行版テスターに申し込む"); a.href="https://forms.gle/Gdc7jviyFQwvio367"; a.target="_blank"; a.rel="noopener";
     a.addEventListener("click",()=>{ try{ window.APP_HIT&&window.APP_HIT("tester_link"); }catch(e){} });
     const x=btn("×","ghost",()=>{ try{ localStorage.setItem("apkInvOff","1"); }catch(e){} c.remove(); }); x.dataset.free="1"; x.setAttribute("aria-label","閉じる"); x.style.cssText="position:absolute;top:6px;right:6px;min-height:36px;min-width:36px;padding:0;font-size:20px";
@@ -1267,6 +1267,7 @@ async function homeRender(){
   if(window.OCR){ const c=mk("div",null,null,"card"); c.append(mk("div","font-size:18px;font-weight:700","駅・バス停の着の知らせ"),mk("div","font-size:15px;line-height:1.5","公式の時刻表のスクショ（平日・土休日）を入れると、近くを走っているときに、電車やバスが着く5分前と、終電・最終バスが終わったときに知らせます。いつでも入れられて、入れた駅・バス停はみんなで使えます。新しく入れた時刻表のほうが使われます。","note"));
     const b=btn("駅・バス停の時刻表を足す","ghost",stnAddOpen); b.dataset.free="1"; b.style.cssText="width:100%;margin-top:8px"; c.append(b);
     const off=localStorage.getItem("stnOff")==="1", t=btn(off?"知らせ：オフ（押すとオン）":"知らせ：オン（押すとオフ）","ghost",()=>{ try{ localStorage.setItem("stnOff",off?"0":"1"); }catch(e){} homeRender(); }); t.dataset.free="1"; t.style.cssText="width:100%;margin-top:8px"; c.append(t); box.append(c); }
+  try{ if((window.APP_CFG||{}).web&&/Android/i.test(navigator.userAgent)){ const a=mk("a","display:block;margin:14px 0 4px;font-size:15px;color:var(--muted);text-align:center","Android アプリ版（先行版テスター）に申し込む"); a.href="https://forms.gle/Gdc7jviyFQwvio367"; a.target="_blank"; a.rel="noopener"; a.addEventListener("click",()=>{ try{ window.APP_HIT&&window.APP_HIT("tester_link"); }catch(e){} }); box.append(a); } }catch(e){}
 }
 // カレンダーの日から、その日の日報（合計だけ）を手で入れる・直す
 function dayForm(k,rp,ap){
