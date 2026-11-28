@@ -2021,7 +2021,7 @@ async function answersRender(force){
   const mk=(tag,css,txt)=>{ const e=document.createElement(tag); if(css) e.style.cssText=css; if(txt!=null) e.textContent=txt; return e; };
   const sec=(q,a,sub)=>{ const d=mk("div","padding:8px 0;border-top:1px solid var(--line)"); d.append(mk("div","font-size:15px;color:var(--muted)",q), mk("div","font-size:20px;font-weight:700;line-height:1.4",a)); if(sub) d.append(mk("div","font-size:15px;color:var(--muted);line-height:1.5",sub)); box.append(d); };
   box.append(mk("div","font-size:17px;font-weight:700","いまの答え（自分の記録 "+A.n+"乗務から）"));
-  if(pos){ const ns=stnNear(pos,2); ns.slice(0,2).forEach(({s,km})=>{ const n=stnNext(s,Date.now()+60000); if(!n.done){ n.at-=60000; n.mins=Math.max(0,n.mins+1); if(n.next2) n.next2-=60000; }
+  if(pos){ const ns=stnNear(pos,2); ns.slice(0,2).forEach(({s,km})=>{ const n=stnNext(s,Date.now()+60000); if(!n.done){ n.at-=60000; if(n.next2) n.next2-=60000; }
     if(n.done) sec("終電は？",s.name+"：今日の終電は終わりました","最後は "+minHm(n.last)+" 発（"+(n.holi?"土休日":"平日")+"ダイヤ）。"+s.line+"・"+s.src);
     else sec("近くの駅の着は？",s.name+"：次は "+hhmm(n.at)+" ごろ着（あと"+n.mins+"分）"+(n.isLast?"・これが終電":""),(n.next2?"その次 "+hhmm(n.next2)+"ごろ・":"")+"終電 "+minHm(n.last)+" 発（"+(n.holi?"土休日":"平日")+"）・約"+km.toFixed(1)+"km。"+s.line+"・"+s.src+"の発車時刻の約1分前を着としています。駅の600m以内に入ると、着く5分前に知らせます"); }); }
   if(A.n<3){ sec("粘る？　どこ行く？　乗り場は？","記録が3乗務分たまると、ここに答えが出ます","日報を写真で読み込むと、過去の分もすぐ使えます。"); return; }
