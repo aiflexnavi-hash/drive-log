@@ -2006,7 +2006,76 @@ function stnCheck(){ try{
     const t="近くの"+s.name+"駅に、"+n.mins+"分後（"+hhmm(n.at)+"）に大阪からの電車が着きます"+(n.isLast?"。これが終電です":"");
     toast(t,true); try{ navigator.vibrate&&navigator.vibrate([80,60,80]); }catch(e){} try{ ssSpeak(t); }catch(e){} });
 }catch(e){} }
+/* ---------- 駅を足す（運転手さんが公式の時刻表のスクショで駅を足す。足した駅は使う人全員に入る） ---------- */
+// 文字読み取りの結果（1行ずつ・位置つき）から「時」と「分」を取り出す。左の列の 0〜24 が時、同じ段の2けたの数が分
+function ttParse(r){
+  const L=(r&&r.lines||[]).map(l=>({t:String(l.text||"").trim(),x:+l.x||0,y:+l.y||0,w:+l.w||0,h:+l.h||0})).filter(l=>l.t);
+  const all=L.map(l=>l.t).join("\n");
+  const hd=(all.match(/(平日|土休日|土曜・休日|土・休日|土日祝|休日|土曜)のダイヤ/)||[])[1];
+  const kind=hd?(hd==="平日"?"wd":"we"):(/土休日|土曜・休日|土・休日|土日祝/.test(all)&&!/平日/.test(all)?"we":"wd");
+  const dir=((all.match(/[^\s\n]{1,20}方面/)||[""])[0]);
+  const st=((all.match(/([^\s\n■]{1,12})駅(?!情報)/)||[])[1])||"";
+  // 時の列：中身が 0〜24 の数だけで、左の方にあるもの
+  const hrs=L.filter(l=>/^\d{1,2}$/.test(l.t)&&Number(l.t)<=24).map(l=>({h:Number(l.t),x:l.x,y:l.y+l.h/2,w:l.w,hh:l.h}));
+  if(hrs.length<4) return {kind,dir,st,times:[],note:"時刻表の「時」の列が見つかりませんでした"};
+  const minX=Math.min(...hrs.map(h=>h.x)), col=hrs.filter(h=>h.x<=minX+Math.max(30,hrs[0].w*2)).sort((a,b)=>a.y-b.y);
+  // 上から順に時が増える（0時は24時として扱う）ものだけ残す
+  const rows=[]; col.forEach(c=>{ let h=c.h; if(rows.length&&h<rows[rows.length-1].h) h+=24; if(!rows.length||h>rows[rows.length-1].h) rows.push({...c,h}); });
+  if(rows.length<4) return {kind,dir,st,times:[],note:"時刻表の「時」の列が読めませんでした"};
+  const gap=(rows[rows.length-1].y-rows[0].y)/Math.max(1,rows.length-1), right=minX+Math.max(...rows.map(r=>r.w))+4;
+  const times=[];
+  rows.forEach((r,i)=>{ const top=i?(rows[i-1].y+r.y)/2:r.y-gap/2, bot=i<rows.length-1?(r.y+rows[i+1].y)/2:r.y+gap/2;
+    const ms=new Set();
+    L.forEach(l=>{ const cy=l.y+l.h/2; if(cy<top||cy>=bot||l.x<right) return;
+      (l.t.match(/\d+/g)||[]).forEach(tok=>{ if(tok.length===2&&Number(tok)<=59) ms.add(Number(tok)); else if(tok.length>2&&tok.length%2===0) for(let k=0;k<tok.length;k+=2){ const m=Number(tok.slice(k,k+2)); if(m<=59) ms.add(m); } }); });
+    [...ms].sort((a,b)=>a-b).forEach(m=>times.push(r.h*60+m)); });
+  return {kind,dir,st,times:[...new Set(times)].sort((a,b)=>a-b)};
+}
+const ttStr=ts=>{ const g={}; ts.forEach(t=>{ const h=Math.floor(t/60); (g[h]=g[h]||[]).push(String(t%60).padStart(2,"0")); }); return Object.keys(g).map(Number).sort((a,b)=>a-b).map(h=>h+":"+g[h].join(",")).join("|"); };
+function stnAddOpen(){
+  const pos=S.pos&&Date.now()-S.pos.at<120000?S.pos:null;
+  const ov=mk("div","position:fixed;inset:0;z-index:4000;background:var(--bg);overflow:auto;padding:16px;padding-top:calc(16px + var(--sat,0px))");
+  const bx=mk("div","max-width:560px;margin:0 auto;font-size:18px"); ov.append(bx); document.body.append(ov);
+  const st={name:"",line:"",wd:null,we:null,busy:false,msg:""};
+  const close=()=>ov.remove();
+  const draw=()=>{ bx.replaceChildren();
+    bx.append(mk("div","font-size:22px;font-weight:700;margin-bottom:6px","この駅の時刻表を足す"));
+    bx.append(mk("p","font-size:16px;line-height:1.6","鉄道会社の公式の時刻表（駅の時刻表のページ）をスクショして、平日と土休日の2枚を選んでください。大阪など街の中心から帰ってくる方向（この駅でお客さんが降りる方向）だけで大丈夫です。足した駅は、このアプリを使う人全員の「駅の着の知らせ」に入ります。","note"));
+    if(!pos||pos.acc>150) bx.append(mk("p","font-size:16px;color:var(--warn,#e0a030)","駅の位置は、今いる場所で決めます。駅の近く（乗り場など）で開いてください。"+(pos?"（今の位置の誤差 ±"+pos.acc+"m）":"（位置が取れていません）")));
+    else bx.append(mk("p","font-size:15px","駅の位置：今いる場所（±"+pos.acc+"m）","note"));
+    const fi=mk("input"); fi.id="stFile"; fi.type="file"; fi.accept="image/*"; fi.multiple=true; fi.style.display="none";
+    fi.onchange=async()=>{ const fs=Array.from(fi.files||[]).slice(0,4); if(!fs.length) return; st.busy=true; st.msg="読み取り中…"; draw();
+      for(const f of fs){ try{ const r=await window.OCR.read(f); const p=ttParse(r); if(p.times.length<10){ st.msg=p.note||"時刻が読めない写真がありました（時刻表の全体が写るように撮り直してください）"; continue; }
+          st[p.kind]=p.times; if(!st.name&&p.st) st.name=p.st; if(!st.line&&p.dir) st.line=p.dir; st.msg=""; }catch(e){ st.msg=String(e&&e.message||"読み取れませんでした"); } }
+      st.busy=false; draw(); };
+    const pick=btn(st.busy?st.msg:"スクショを選ぶ（平日・土休日）","vacant wide",()=>{ if(!st.busy) fi.click(); }); pick.dataset.free="1"; bx.append(fi,pick);
+    if(st.msg&&!st.busy) bx.append(mk("p","font-size:16px;color:var(--warn,#e0a030)",st.msg));
+    const lab=(t,v,set)=>{ const w=mk("label","display:block;margin:10px 0"); w.append(mk("div","font-size:15px",t,"note")); const i=mk("input","width:100%;font-size:18px;padding:8px;box-sizing:border-box"); i.value=v; i.oninput=()=>set(i.value.trim().slice(0,30)); w.append(i); bx.append(w); };
+    lab("駅の名前（例：近鉄八尾）",st.name,v=>st.name=v.replace(/駅$/,""));
+    lab("路線と方面（例：近鉄大阪線 河内国分・名張方面）",st.line,v=>st.line=v);
+    [["wd","平日"],["we","土休日"]].forEach(([k,n])=>{ const t=st[k]; bx.append(mk("div","font-size:17px;margin:6px 0",t?"✓ "+n+"："+t.length+"本（"+minHm(t[0])+"〜最終 "+minHm(t[t.length-1])+"）":"○ "+n+"：まだ"));
+      if(t){ const d=mk("details","font-size:14px"); d.append(mk("summary","",n+"の読み取り結果を見る")); d.append(mk("div","line-height:1.6;word-break:break-all",ttStr(t).split("|").join("　"))); bx.append(d); } });
+    bx.append(mk("p","font-size:14px","時刻表の時刻は発車の時刻です。知らせでは、その約1分前を「着」として使います。読み違いがあれば、スクショを選び直してください。","note"));
+    const ok=!!(st.wd&&st.we&&st.name&&pos&&pos.acc<=150);
+    const save=btn("保存して、みんなの知らせに入れる","vacant wide",async()=>{ if(!ok) return; save.disabled=true;
+      const one={name:st.name,line:st.line||"",lat:pos.lat,lng:pos.lng,wd:ttStr(st.wd),we:ttStr(st.we),src:"利用者が公式の時刻表から（"+ymd(new Date())+"）"};
+      let shared=false; try{ const api=await window.claude.use("stations"); if(api){ await api.put(one); shared=true; } }catch(e){}
+      stnLocalAdd(one); toast(shared?"✓ "+one.name+" を足しました（みんなの知らせに入りました）":"✓ "+one.name+" をこの端末に足しました（みんなへの共有はできませんでした）",shared); close(); answersRender(true); });
+    save.disabled=!ok; save.style.marginTop="12px"; bx.append(save);
+    const cn=btn("やめる","ghost wide",close); cn.style.marginTop="8px"; bx.append(cn); };
+  draw();
+}
+// 足した駅（自分の分は端末にも残す。みんなの分は保存先から取る）
+function stnLoad(list){ (list||[]).forEach(o=>{ if(!o||!o.name||!o.wd||!o.we||!(Math.abs(o.lat)>0)) return;
+    const x={name:String(o.name).slice(0,30),line:String(o.line||"").slice(0,40),lat:+o.lat,lng:+o.lng,src:String(o.src||"").slice(0,60),wd:String(o.wd),we:String(o.we)};
+    try{ x.WD=stnTimes(x.wd); x.WE=stnTimes(x.we); }catch(e){ return; } if(!x.WD.length||!x.WE.length) return;
+    const i=STN.findIndex(s=>s.name===x.name&&kmBetween(s.lat,s.lng,x.lat,x.lng)<0.5&&(s.line===x.line||!s.user)); if(i>=0) STN.splice(i,1);
+    x.user=true; STN.push(x); }); }
+function stnLocalAdd(o){ let a=[]; try{ a=JSON.parse(localStorage.getItem("myStations")||"[]"); }catch(e){} a=a.filter(x=>!(x.name===o.name&&x.line===o.line)); a.push(o); try{ localStorage.setItem("myStations",JSON.stringify(a.slice(-30))); }catch(e){} stnLoad([o]); }
+async function stnSync(){ try{ stnLoad(JSON.parse(localStorage.getItem("myStations")||"[]")); }catch(e){}
+  try{ const api=await window.claude.use("stations"); if(!api) return; const list=await api.list(); stnLoad(list); }catch(e){} }
 let ANS_T=0;
+function answersAddBtn(box){ if(!window.OCR) return; const b=btn("この駅の時刻表を足す（みんなの知らせに入ります）","ghost wide",stnAddOpen); b.dataset.free="1"; b.style.cssText="margin-top:8px;min-height:44px;font-size:16px"; box.append(b); }
 const kmTxt=k=>k==null?"":k<0.3?"・すぐ近く":"・約"+k.toFixed(1)+"km";
 async function answersRender(force){
   const box=$("answers"); if(!box) return;
@@ -2023,8 +2092,8 @@ async function answersRender(force){
   box.append(mk("div","font-size:17px;font-weight:700","いまの答え（自分の記録 "+A.n+"乗務から）"));
   if(pos){ const ns=stnNear(pos,2); ns.slice(0,2).forEach(({s,km})=>{ const n=stnNext(s,Date.now()+60000); if(!n.done){ n.at-=60000; if(n.next2) n.next2-=60000; }
     if(n.done) sec("終電は？",s.name+"：今日の終電は終わりました","最後は "+minHm(n.last)+" 発（"+(n.holi?"土休日":"平日")+"ダイヤ）。"+s.line+"・"+s.src);
-    else sec("近くの駅の着は？",s.name+"：次は "+hhmm(n.at)+" ごろ着（あと"+n.mins+"分）"+(n.isLast?"・これが終電":""),(n.next2?"その次 "+hhmm(n.next2)+"ごろ・":"")+"終電 "+minHm(n.last)+" 発（"+(n.holi?"土休日":"平日")+"）・約"+km.toFixed(1)+"km。"+s.line+"・"+s.src+"の発車時刻の約1分前を着としています。駅の600m以内に入ると、着く5分前に知らせます"); }); }
-  if(A.n<3){ sec("粘る？　どこ行く？　乗り場は？","記録が3乗務分たまると、ここに答えが出ます","日報を写真で読み込むと、過去の分もすぐ使えます。"); return; }
+    else sec("近くの駅の着は？",s.name+"：次は "+hhmm(n.at)+" ごろ着（あと"+(n.mins>=60?Math.floor(n.mins/60)+"時間"+(n.mins%60)+"分":n.mins+"分")+"）"+(n.isLast?"・これが終電":""),(n.next2?"その次 "+hhmm(n.next2)+"ごろ・":"")+"終電 "+minHm(n.last)+" 発（"+(n.holi?"土休日":"平日")+"）・約"+km.toFixed(1)+"km。"+s.line+"・"+s.src+"の発車時刻の約1分前を着としています。駅の600m以内に入ると、着く5分前に知らせます"); }); }
+  if(A.n<3){ sec("粘る？　どこ行く？　乗り場は？","記録が3乗務分たまると、ここに答えが出ます","日報を写真で読み込むと、過去の分もすぐ使えます。"); answersAddBtn(box); return; }
   const s=A.stay, yen=v=>fmtYen(v)+"円";
   const ex="いつもの自分なら、残り"+hm(s.remain)+"で 約"+yen(s.expect);
   if(s.verdict==="届く") sec("粘る？帰る？","粘れば目標に届く見込み",ex+"（目標まであと "+yen(s.left)+"）");
@@ -2037,6 +2106,7 @@ async function answersRender(force){
   else sec("どこ行く？","この時間はまだ記録が足りません","今の時間の前後に2回以上乗せた場所が出てくると、ここに出ます（乗車地の名前は日報か、乗車を押した場所から取ります）。");
   if(A.stand.length) sec("乗り場・付け待ちの回転は？",A.stand.map(x=>x.name+" "+x.wait+"分").join("・"),A.stand.map(x=>x.name+"（"+(x.kind||"")+"）：並んでから乗るまで平均"+x.wait+"分"+(x.timed?"（この時間帯）":"")+"・平均"+yen(x.avg)+"・1時間の見込み 約"+yen(x.perH)+kmTxt(x.km)+"（"+x.n+"回）").join("／"));
   else sec("乗り場・付け待ちの回転は？","まだ記録がありません","「乗り場に並ぶ」「付け待ち開始」を押してから乗せると、場所ごとの待ち時間が出ます。");
+  answersAddBtn(box);
 }
 async function myStatsRender(){
   const box=$("myStatsBody"); if(!box||!S.db) return; box.replaceChildren();
@@ -2287,6 +2357,7 @@ function watchShift(){
   try{
     const [db,dl,sm,tt]=await Promise.all([window.claude.use("db"), window.claude.use("downloads"), window.claude.use("sample"), window.claude.use("tts")]);
     try{ S.layout=await window.claude.use("layout"); }catch(e){ S.layout=null; }
+    stnSync();
     S.dl=dl;
     if(sm){ C.sample=sm; if(!window.NO_CHAT) $("chat").hidden=false; $("chatSend").addEventListener("click",ask); }
     if(tt){ C.tts=tt; try{ tt.onState(({state})=>{ if(state==="speaking"){ C.ttsStarted=true; C.ttsWorked=true; } }); }catch(e){} }

@@ -198,6 +198,8 @@ window.NO_CHAT=true;   // 雑談の相談はアプリに入れない
     if(name==="sample") return API&&aiOn?sample:null;
     // 日報の形を1回だけ AI に聞く（読み取った文字と位置だけを送る。写真は送らない）
     if(name==="layout") return API&&LS.get("layoutOn",false)?(async lines=>{ const j=await call({op:"layout",lines:lines.slice(0,700)}); return j.layout||null; }):null;
+    // 駅の時刻表（みんなで足す）。保存先がないときは使えない
+    if(name==="stations") return API?{ list:async()=>{ const j=await call({op:"stations"},20000); return j.stations||[]; }, put:async st=>{ const j=await call({op:"station_put",st},20000); if(!j.ok) throw new Error(j.error||"ng"); return j; } }:null;
     if(name==="db") return db;   // 保存先がなくても、スマホの中だけで使える
     if(name==="downloads") return downloads;
     if(name==="tts") return makeTts();
