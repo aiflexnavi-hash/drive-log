@@ -1204,6 +1204,14 @@ async function homeRender(){
     if(miss.length){ const k0=miss[0];
       const b=btn("日報がまだの日 "+miss.length+"日（"+miss.slice(0,3).map(k=>Number(k.slice(5,7))+"/"+Number(k.slice(8))).join("・")+(miss.length>3?"…":"")+"）→ 入れる","wait wide",()=>{ V.calDay=k0; V.formDay=k0; setView("cal"); setTimeout(()=>{ const c=[...document.querySelectorAll("#vCal .card")].pop(); if(c) c.scrollIntoView({behavior:"smooth",block:"start"}); },700); });
       b.dataset.free="1"; b.style.cssText="width:100%;min-height:72px;font-size:20px;margin-bottom:10px"; box.append(b); } }
+  // ブラウザ版（Android）で、乗務を1回終えた人にだけ：アプリ版の先行テスターへの案内（×で二度と出さない）
+  try{ const cfg=window.APP_CFG||{}; if(cfg.web&&/Android/i.test(navigator.userAgent)&&localStorage.getItem("apkInvOff")!=="1"&&Object.keys(days).some(k=>days[k].some(x=>!x.rep&&!x.live))){
+    const c=mk("div","position:relative;padding-right:44px",null,"card");
+    c.append(mk("div","font-size:17px;line-height:1.5","Androidの方へ：アプリ版なら画面を消しても距離を測れます。"));
+    const a=mk("a","display:inline-block;margin-top:6px;font-size:18px;font-weight:700","先行版テスターに申し込む"); a.href="https://forms.gle/Gdc7jviyFQwvio367"; a.target="_blank"; a.rel="noopener";
+    a.addEventListener("click",()=>{ try{ window.APP_HIT&&window.APP_HIT("tester_link"); }catch(e){} });
+    const x=btn("×","ghost",()=>{ try{ localStorage.setItem("apkInvOff","1"); }catch(e){} c.remove(); }); x.dataset.free="1"; x.setAttribute("aria-label","閉じる"); x.style.cssText="position:absolute;top:6px;right:6px;min-height:36px;min-width:36px;padding:0;font-size:20px";
+    c.append(a,x); box.append(c); } }catch(e){}
   // 今の状態と出庫ボタン
   { const c=mk("div",null,null,"card");
     c.append(mk("div","font-size:24px;font-weight:800",S.shift?"乗務中（"+hm(Date.now()-S.shift.start)+"）":wd.has(today)?"今日は出番の日です":"今日は乗務していません"));
