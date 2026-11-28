@@ -1255,6 +1255,9 @@ async function homeRender(){
     const u=btn(set.indiv?"設定を変える（営業区域・締め日・出番・目標）":"設定を変える（会社・締め日・歩合・足切り・出番・目標）","ghost",()=>setupOpen(false)); u.dataset.free="1"; u.style.cssText="width:100%;margin-top:8px"; c.append(u);
     if(set.indiv) ps.hidden=true; else { ps.hidden=false; c.append(ps); paySetRender(); }
     box.append(c); }
+  // 駅の時刻表を足す（駅の近くで。みんなの「駅の着」の知らせに入る）
+  if(window.OCR){ const c=mk("div",null,null,"card"); c.append(mk("div","font-size:18px;font-weight:700","駅の着の知らせ"),mk("div","font-size:15px;line-height:1.5","駅の近くで、公式の時刻表のスクショ（平日・土休日）を入れると、その駅に電車が着く5分前に知らせます。入れた駅はみんなで使えます。","note"));
+    const b=btn("この駅の時刻表を足す","ghost",stnAddOpen); b.dataset.free="1"; b.style.cssText="width:100%;margin-top:8px"; c.append(b); box.append(c); }
 }
 // カレンダーの日から、その日の日報（合計だけ）を手で入れる・直す
 function dayForm(k,rp,ap){
@@ -2039,38 +2042,58 @@ function ttParse(r){
 }
 const ttStr=ts=>{ const g={}; ts.forEach(t=>{ const h=Math.floor(t/60); (g[h]=g[h]||[]).push(String(t%60).padStart(2,"0")); }); return Object.keys(g).map(Number).sort((a,b)=>a-b).map(h=>h+":"+g[h].join(",")).join("|"); };
 function stnAddOpen(){
-  const pos=S.pos&&Date.now()-S.pos.at<120000?S.pos:null;
+  const here=S.pos&&Date.now()-S.pos.at<120000&&S.pos.acc<=150?S.pos:null;
   const ov=mk("div","position:fixed;inset:0;z-index:4000;background:var(--bg);overflow:auto;padding:16px;padding-top:calc(16px + var(--sat,0px))");
   const bx=mk("div","max-width:560px;margin:0 auto;font-size:18px"); ov.append(bx); document.body.append(ov);
-  const st={name:"",line:"",wd:null,we:null,busy:false,msg:""};
+  const st={name:"",line:"",wd:null,we:null,busy:false,msg:"",pos:null,posWhy:""};
+  // 駅の場所：駅名で探す（国土地理院の地名検索。送るのは駅名だけ）→ 見つからなければ地図で選ぶ
+  const findPos=async()=>{ if(!st.name) return; try{ const r=await fetch("https://msearch.gsi.go.jp/address-search/AddressSearch?q="+encodeURIComponent(st.name+"駅")); const j=await r.json();
+      const hit=(Array.isArray(j)?j:[]).find(x=>x&&x.geometry&&String(x.properties&&x.properties.title||"").includes(st.name)); 
+      if(hit){ const [lng,lat]=hit.geometry.coordinates; st.pos={lat:+lat,lng:+lng}; st.posWhy="駅名で探しました（"+hit.properties.title+"）"; } else st.posWhy="駅名では見つかりませんでした。地図で選んでください"; }
+    catch(e){ st.posWhy="駅名で探せませんでした。地図で選んでください"; } draw(); };
   const close=()=>ov.remove();
   const draw=()=>{ bx.replaceChildren();
     bx.append(mk("div","font-size:22px;font-weight:700;margin-bottom:6px","この駅の時刻表を足す"));
-    bx.append(mk("p","font-size:16px;line-height:1.6","鉄道会社の公式の時刻表（駅の時刻表のページ）をスクショして、平日と土休日の2枚を選んでください。大阪など街の中心から帰ってくる方向（この駅でお客さんが降りる方向）だけで大丈夫です。足した駅は、このアプリを使う人全員の「駅の着の知らせ」に入ります。","note"));
-    if(!pos||pos.acc>150) bx.append(mk("p","font-size:16px;color:var(--warn,#e0a030)","駅の位置は、今いる場所で決めます。駅の近く（乗り場など）で開いてください。"+(pos?"（今の位置の誤差 ±"+pos.acc+"m）":"（位置が取れていません）")));
-    else bx.append(mk("p","font-size:15px","駅の位置：今いる場所（±"+pos.acc+"m）","note"));
+    bx.append(mk("p","font-size:16px;line-height:1.6","いつでも入れられます（駅にいなくても大丈夫）。鉄道会社の公式の時刻表（駅の時刻表のページ）をスクショして、平日と土休日の2枚を選んでください。大阪など街の中心から帰ってくる方向（この駅でお客さんが降りる方向）だけで大丈夫です。足した駅は、このアプリを使う人全員の「駅の着の知らせ」に入ります。","note"));
     const fi=mk("input"); fi.id="stFile"; fi.type="file"; fi.accept="image/*"; fi.multiple=true; fi.style.display="none";
     fi.onchange=async()=>{ const fs=Array.from(fi.files||[]).slice(0,4); if(!fs.length) return; st.busy=true; st.msg="読み取り中…"; draw();
       for(const f of fs){ try{ const r=await window.OCR.read(f); const p=ttParse(r); if(p.times.length<10){ st.msg=p.note||"時刻が読めない写真がありました（時刻表の全体が写るように撮り直してください）"; continue; }
           st[p.kind]=p.times; if(!st.name&&p.st) st.name=p.st; if(!st.line&&p.dir) st.line=p.dir; st.msg=""; }catch(e){ st.msg=String(e&&e.message||"読み取れませんでした"); } }
-      st.busy=false; draw(); };
+      st.busy=false; draw(); if(st.name&&!st.pos) findPos(); };
     const pick=btn(st.busy?st.msg:"スクショを選ぶ（平日・土休日）","vacant wide",()=>{ if(!st.busy) fi.click(); }); pick.dataset.free="1"; bx.append(fi,pick);
     if(st.msg&&!st.busy) bx.append(mk("p","font-size:16px;color:var(--warn,#e0a030)",st.msg));
     const lab=(t,v,set)=>{ const w=mk("label","display:block;margin:10px 0"); w.append(mk("div","font-size:15px",t,"note")); const i=mk("input","width:100%;font-size:18px;padding:8px;box-sizing:border-box"); i.value=v; i.oninput=()=>set(i.value.trim().slice(0,30)); w.append(i); bx.append(w); };
     lab("駅の名前（例：近鉄八尾）",st.name,v=>st.name=v.replace(/駅$/,""));
     lab("路線と方面（例：近鉄大阪線 河内国分・名張方面）",st.line,v=>st.line=v);
+    { const w=mk("div","margin:10px 0"); w.append(mk("div","font-size:15px","駅の場所","note"));
+      w.append(mk("div","font-size:17px",st.pos?"✓ "+(st.posWhy||"選びました")+"（"+st.pos.lat.toFixed(4)+", "+st.pos.lng.toFixed(4)+"）":"○ "+(st.posWhy||"まだ")));
+      const g=mk("div","display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px");
+      const f1=btn("駅名で探す","ghost",findPos), f2=btn("地図で選ぶ","ghost",()=>stnPickMap(st.pos?[st.pos.lat,st.pos.lng]:(here?[here.lat,here.lng]:null),p=>{ st.pos=p; st.posWhy="地図で選びました"; draw(); }));
+      f1.dataset.free=f2.dataset.free="1"; g.append(f1,f2); if(here){ const f3=btn("今いる場所（±"+here.acc+"m）にする","ghost",()=>{ st.pos={lat:here.lat,lng:here.lng}; st.posWhy="今いる場所"; draw(); }); f3.dataset.free="1"; f3.style.gridColumn="1 / 3"; g.append(f3); }
+      w.append(g); bx.append(w); }
     [["wd","平日"],["we","土休日"]].forEach(([k,n])=>{ const t=st[k]; bx.append(mk("div","font-size:17px;margin:6px 0",t?"✓ "+n+"："+t.length+"本（"+minHm(t[0])+"〜最終 "+minHm(t[t.length-1])+"）":"○ "+n+"：まだ"));
       if(t){ const d=mk("details","font-size:14px"); d.append(mk("summary","",n+"の読み取り結果を見る")); d.append(mk("div","line-height:1.6;word-break:break-all",ttStr(t).split("|").join("　"))); bx.append(d); } });
     bx.append(mk("p","font-size:14px","時刻表の時刻は発車の時刻です。知らせでは、その約1分前を「着」として使います。読み違いがあれば、スクショを選び直してください。","note"));
-    const ok=!!(st.wd&&st.we&&st.name&&pos&&pos.acc<=150);
+    const ok=!!(st.wd&&st.we&&st.name&&st.pos);
     const save=btn("保存して、みんなの知らせに入れる","vacant wide",async()=>{ if(!ok) return; save.disabled=true;
-      const one={name:st.name,line:st.line||"",lat:pos.lat,lng:pos.lng,wd:ttStr(st.wd),we:ttStr(st.we),src:"利用者が公式の時刻表から（"+ymd(new Date())+"）"};
+      const one={name:st.name,line:st.line||"",lat:+st.pos.lat.toFixed(6),lng:+st.pos.lng.toFixed(6),wd:ttStr(st.wd),we:ttStr(st.we),src:"利用者が公式の時刻表から（"+ymd(new Date())+"）"};
       let shared=false; try{ const api=await window.claude.use("stations"); if(api){ await api.put(one); shared=true; } }catch(e){}
       stnLocalAdd(one); toast(shared?"✓ "+one.name+" を足しました（みんなの知らせに入りました）":"✓ "+one.name+" をこの端末に足しました（みんなへの共有はできませんでした）",shared); close(); answersRender(true); });
     save.disabled=!ok; save.style.marginTop="12px"; bx.append(save);
     const cn=btn("やめる","ghost wide",close); cn.style.marginTop="8px"; bx.append(cn); };
   draw();
-}
+}function stnPickMap(c,cb){ loadLeaflet().then(()=>{
+  c=c||(S.pos?[S.pos.lat,S.pos.lng]:[34.7025,135.4959]);
+  const ov=mk("div","position:fixed;inset:0;z-index:4700;background:var(--bg);display:flex;flex-direction:column;padding-top:var(--sat,0px)");
+  const hd=mk("div","padding:10px 14px;font-size:17px","地図を動かして、真ん中の＋を駅（乗り場）に合わせてください");
+  const wrap=mk("div","position:relative;flex:1"), el=mk("div","position:absolute;inset:0"); wrap.append(el, mk("div","position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:44px;line-height:1;color:#e53935;pointer-events:none;z-index:1000;text-shadow:0 0 3px #fff","＋"));
+  const ft=mk("div","display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:10px 14px calc(10px + env(safe-area-inset-bottom,0px))");
+  let m=null; const end=()=>{ try{ m&&m.remove(); }catch(x){} ov.remove(); };
+  const cc=btn("やめる","ghost",end), ok=btn("ここにする","vacant",()=>{ const p=m.getCenter(); end(); cb({lat:+p.lat.toFixed(6),lng:+p.lng.toFixed(6)}); });
+  cc.dataset.free=ok.dataset.free="1"; ft.append(cc,ok); ov.append(hd,wrap,ft); document.body.append(ov);
+  m=L.map(el,{zoomControl:true}).setView(c,16); L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:18,attribution:"© OpenStreetMap"}).addTo(m); setTimeout(()=>m.invalidateSize(),100);
+}).catch(()=>toast("地図を読めませんでした（電波を確認）",false)); }
+
 // 足した駅（自分の分は端末にも残す。みんなの分は保存先から取る）
 function stnLoad(list){ (list||[]).forEach(o=>{ if(!o||!o.name||!o.wd||!o.we||!(Math.abs(o.lat)>0)) return;
     const x={name:String(o.name).slice(0,30),line:String(o.line||"").slice(0,40),lat:+o.lat,lng:+o.lng,src:String(o.src||"").slice(0,60),wd:String(o.wd),we:String(o.we)};
