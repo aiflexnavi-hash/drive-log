@@ -2000,11 +2000,17 @@ const minHm=m=>(Math.floor(m/60)%24)+":"+String(m%60).padStart(2,"0");
 const STN_SEEN={};
 function stnNear(pos,km){ return STN.map(s=>({s,km:kmBetween(pos.lat,pos.lng,s.lat,s.lng)})).filter(x=>x.km<=km).sort((a,b)=>a.km-b.km); }
 // 駅の近く（600m）で、5分前に1回だけ知らせる。乗務中で、実車・迎車でないとき
+// アプリ版：画面を消していても通知で知らせる（ブラウザ版は何もしない）
+let LN_ASKED=false;
+function appNotify(title,body){ try{ const LN=window.Capacitor&&window.Capacitor.Plugins&&window.Capacitor.Plugins.LocalNotifications; if(!LN) return;
+  LN.schedule({notifications:[{id:Math.floor(Date.now()/1000)%2000000000,title,body}]}).catch(()=>{}); }catch(e){} }
+function appNotifyAsk(){ if(LN_ASKED) return; LN_ASKED=true; try{ const LN=window.Capacitor&&window.Capacitor.Plugins&&window.Capacitor.Plugins.LocalNotifications; if(LN) LN.requestPermissions().catch(()=>{}); }catch(e){} }
 function stnCheck(){ try{
+  if(S.shift) appNotifyAsk();
   if(!S.shift||!S.pos||Date.now()-S.pos.at>120000) return; const st=currentState(); if(st==="hired"||st==="dispatch"||st==="arrived"||st==="off") return;
   stnNear(S.pos,0.6).forEach(({s})=>{ const n=stnNext(s,Date.now()+60000); if(n.done||n.mins<3||n.mins>6) return; n.at-=60000; const key=s.name+n.at; if(STN_SEEN[key]) return; STN_SEEN[key]=1;
     const t="近くの"+s.name+"駅に、"+n.mins+"分後（"+hhmm(n.at)+"）に大阪からの電車が着きます"+(n.isLast?"。これが終電です":"");
-    toast(t,true); try{ navigator.vibrate&&navigator.vibrate([80,60,80]); }catch(e){} try{ ssSpeak(t); }catch(e){} });
+    toast(t,true); try{ navigator.vibrate&&navigator.vibrate([80,60,80]); }catch(e){} try{ ssSpeak(t); }catch(e){} appNotify("駅の着",t); });
 }catch(e){} }
 /* ---------- 駅を足す（運転手さんが公式の時刻表のスクショで駅を足す。足した駅は使う人全員に入る） ---------- */
 // 文字読み取りの結果（1行ずつ・位置つき）から「時」と「分」を取り出す。左の列の 0〜24 が時、同じ段の2けたの数が分
